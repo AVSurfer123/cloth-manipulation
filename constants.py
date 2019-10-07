@@ -11,10 +11,12 @@ Z_STATIONARY = 1.2
 ROBOT_ORIGIN = (0.2, 0.55, Z_STATIONARY)
 
 TOPIC_NAME = '/l_gripper_controller/command'
+#  '/r_gripper_controller/command'
 
 N_ACTIONS = 200
 
-CHECKPOINT_PATH = '/home/owen/wilson/pr2-towel-manipulation/policies/cloth_multiple/checkpoint_450'
+CHECKPOINT_PATH = '/home/owen/wilson/cloth-manipulation/policies/cloth_multiple/checkpoint_450'
+#CHECKPOINT_PATH = '/home/owen/wilson/pr2-towel-manipulation/policies/cloth_multiple/checkpoint_450'
 # CHECKPOINT_PATH = '/home/owen/wilson/pr2-towel-manipulation/policies/rope_seed_9029/checkpoint_90'
 
 
@@ -42,3 +44,5 @@ CLOTH_WIDTH = int(38.3)
 CLOTH_HEIGHT = int(36.4)
 
 ROPE_GRIPPER_POS = (-0.505492181707, 0.492453067403, 0.478780032014, 0.522242579252)
+
+TEST_GRIPPER_POS = (0.137595297951, 0.687421561519, -0.157305941758, 0.695538619653)

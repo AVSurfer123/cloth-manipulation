@@ -8,7 +8,7 @@ from pr2_controllers_msgs.msg import Pr2GripperCommand
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from constants import TEST_GRIPPER_POS as GRIPPER_POS
 
-TOPIC_NAME = '/l_gripper_controller/command'
+TOPIC_NAME = '/r_gripper_controller/command'
 pub_gripper = rospy.Publisher(TOPIC_NAME, Pr2GripperCommand, queue_size=10)
 
 
@@ -16,8 +16,8 @@ moveit_commander.roscpp_initialize(sys.argv)
 rospy.init_node('pr2_move_group_test')
 robot = moveit_commander.RobotCommander()
 
-left_arm = moveit_commander.MoveGroupCommander('left_arm')
-left_gripper = moveit_commander.MoveGroupCommander('left_gripper')
+right_arm = moveit_commander.MoveGroupCommander('right_arm')
+right_gripper = moveit_commander.MoveGroupCommander('right_gripper')
 
 group_names = robot.get_group_names()
 
@@ -34,12 +34,12 @@ def pose_pos(x, y, z):
     pose_goal.orientation.z = GRIPPER_POS[2]
     pose_goal.orientation.w = GRIPPER_POS[3]
 
-    left_arm.set_pose_target(pose_goal)
-    left_arm.go(wait=True)
-    left_arm.stop()
-    left_arm.clear_pose_targets()
+    right_arm.set_pose_target(pose_goal)
+    right_arm.go(wait=True)
+    right_arm.stop()
+    right_arm.clear_pose_targets()
 
-    current_pose = left_arm.get_current_pose().pose
+    current_pose = right_arm.get_current_pose().pose
     x_err = np.abs(pose_goal.position.x - current_pose.position.x)
     y_err = np.abs(pose_goal.position.y - current_pose.position.y)
     z_err = np.abs(pose_goal.position.z - current_pose.position.z)
@@ -48,7 +48,7 @@ def pose_pos(x, y, z):
 
 
 def pose_ori(x, y, z, w):
-    current_pose = left_arm.get_current_pose().pose
+    current_pose = right_arm.get_current_pose().pose
 
     pose_goal = geometry_msgs.msg.Pose()
     pose_goal.position.x = current_pose.position.x
@@ -59,19 +59,19 @@ def pose_ori(x, y, z, w):
     pose_goal.orientation.z = z
     pose_goal.orientation.w = w
 
-    left_arm.set_pose_target(pose_goal)
-    plan = left_arm.plan()
+    right_arm.set_pose_target(pose_goal)
+    plan = right_arm.plan()
     print plan
-    left_arm.execute(plan, wait=True)
+    right_arm.execute(plan, wait=True)
     # left_arm.go(wait=True)
-    left_arm.stop()
-    left_arm.clear_pose_targets()
+    right_arm.stop()
+    right_arm.clear_pose_targets()
 
 
 def move_joint(joint_values):
-    left_arm.set_joint_value_target(joint_values)
-    left_arm.go(wait=True)
-    left_arm.stop()
+    right_arm.set_joint_value_target(joint_values)
+    right_arm.go(wait=True)
+    right_arm.stop()
 
 
 

@@ -31,8 +31,9 @@ def init_controller():
     moveit_commander.roscpp_initialize(['joint_states:=/joint_states'])
     robot = moveit_commander.RobotCommander()
     left_arm = moveit_commander.MoveGroupCommander('left_arm')
+    right_arm = moveit_commander.MoveGroupCommander('right_arm')
 
-    return pub, left_arm
+    return pub, left_arm, right_arm
 
 
 def open_gripper():
@@ -44,7 +45,7 @@ def close_gripper():
 
 
 def gripper_down():
-    current_pose = left_arm.get_current_pose().pose
+    current_pose = arm.get_current_pose().pose
 
     pose_goal = geometry_msgs.msg.Pose()
     pose_goal.position.x = current_pose.position.x
@@ -55,10 +56,10 @@ def gripper_down():
     pose_goal.orientation.z = -0.157305941758
     pose_goal.orientation.w = 0.695538619653
 
-    left_arm.set_pose_target(pose_goal)
-    left_arm.go(wait=True)
-    left_arm.stop()
-    left_arm.clear_pose_targets()
+    arm.set_pose_target(pose_goal)
+    arm.go(wait=True)
+    arm.stop()
+    arm.clear_pose_targets()
 
     time.sleep(0.5)
 
@@ -69,7 +70,7 @@ def reset_arm():
 
 
 def move_arm(x, y, z=None):
-    old_pose = left_arm.get_current_pose().pose
+    old_pose = arm.get_current_pose().pose
 
     pose_goal = geometry_msgs.msg.Pose()
     pose_goal.position.x = x
@@ -83,12 +84,12 @@ def move_arm(x, y, z=None):
     pose_goal.orientation.z = old_pose.orientation.z
     pose_goal.orientation.w = old_pose.orientation.w
 
-    left_arm.set_pose_target(pose_goal)
-    success = left_arm.go(wait=True)
-    left_arm.stop()
-    left_arm.clear_pose_targets()
+    arm.set_pose_target(pose_goal)
+    success = arm.go(wait=True)
+    arm.stop()
+    arm.clear_pose_targets()
 
-    current_pose = left_arm.get_current_pose().pose
+    current_pose = arm.get_current_pose().pose
     x_err = np.abs(pose_goal.position.x - current_pose.position.x)
     y_err = np.abs(pose_goal.position.y - current_pose.position.y)
     z_err = np.abs(pose_goal.position.z - current_pose.position.z)
@@ -128,7 +129,7 @@ def execute_action(location, delta):
     move_arm(start_loc[0], start_loc[1], Z_DOWN)
     time.sleep(0.5)
     close_gripper()
-    time.sleep(2.5) # wait longer since close doesn't block
+    time.sleep(2.5) # wait longer sin ce close doesn't block
     move_arm(start_loc[0], start_loc[1], Z_UP)
     time.sleep(0.5)
     move_arm(end_loc[0], end_loc[1], Z_UP)
@@ -154,7 +155,8 @@ def coord_image_to_robot(image_coord):
 
 if __name__ == '__main__':
     socket = init_socket()
-    pub, left_arm = init_controller()
+    pub, left_arm, right_arm = init_controller()
+    arm = left_arm  # Choose which arm to use
 
     rospy.init_node('towel_folding_py2')
     rospy.Subscriber("/camera/rgb/image_raw", Image, image_callback)
