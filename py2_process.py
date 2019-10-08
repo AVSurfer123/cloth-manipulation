@@ -9,6 +9,7 @@ import pickle
 import zmq
 import zlib
 import sys
+import signal
 import time
 
 from constants import *
@@ -65,7 +66,10 @@ def gripper_down():
 
 
 def reset_arm():
-    move_arm(*ROBOT_ORIGIN)
+    origin = ROBOT_ORIGIN[:]
+    if arm == right_arm:
+        origin[1] = -origin[1]
+    move_arm(*origin)
     gripper_down()
 
 
@@ -152,11 +156,16 @@ def coord_image_to_robot(image_coord):
     image_coord += IMAGE_ORIGIN.astype('float32')
     return image_coord.dot(A) + b
 
+def signal_handler(signal, frame):
+    print('\npy2::Ending process')
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
 
 if __name__ == '__main__':
     socket = init_socket()
     pub, left_arm, right_arm = init_controller()
-    arm = left_arm  # Choose which arm to use
+    arm = right_arm  # Choose which arm to use
 
     rospy.init_node('towel_folding_py2')
     rospy.Subscriber("/camera/rgb/image_raw", Image, image_callback)
@@ -183,3 +192,4 @@ if __name__ == '__main__':
         send_message = True
         waiting_to_send_image = True
         time_step += 1
+

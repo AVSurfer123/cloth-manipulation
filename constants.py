@@ -5,13 +5,13 @@ A = W[1:]
 b = W[0]
 
 Z_UP = 1.075
-Z_DOWN = 1.02
+Z_DOWN = 1.00
 Z_STATIONARY = 1.2
 
-ROBOT_ORIGIN = (0.2, 0.55, Z_STATIONARY)
+ROBOT_ORIGIN = [0.2, 0.55, Z_STATIONARY]
 
-TOPIC_NAME = '/l_gripper_controller/command'
-#  '/r_gripper_controller/command'
+
+TOPIC_NAME = '/r_gripper_controller/command'  # Change to l or r depending on which arm is wanted
 
 N_ACTIONS = 200
 
@@ -31,7 +31,7 @@ IMAGE_INPUT_SIZE = 64
 MAX_IMAGE_DELTA = 5
 
 BLUE = np.array([[0, 0, 255]])
-GREEN = np.array([[130, 200, 170]])
+GREEN = np.array([[0, 255, 0]])
 WHITE = np.array([[255, 255, 255]])
 YELLOW = np.array([[255, 255, 0]])
 

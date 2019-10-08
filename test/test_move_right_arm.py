@@ -13,7 +13,7 @@ pub_gripper = rospy.Publisher(TOPIC_NAME, Pr2GripperCommand, queue_size=10)
 
 
 moveit_commander.roscpp_initialize(sys.argv)
-rospy.init_node('pr2_move_group_test')
+rospy.init_node('pr2_move_right_arm_test')
 robot = moveit_commander.RobotCommander()
 
 right_arm = moveit_commander.MoveGroupCommander('right_arm')
@@ -24,7 +24,7 @@ group_names = robot.get_group_names()
 print('Available Planning Groups:', robot.get_group_names())
 print('Current state:', robot.get_current_state())
 
-def pose_pos(x, y, z):
+def right_pose_pos(x, y, z):
     pose_goal = geometry_msgs.msg.Pose()
     pose_goal.position.x = x
     pose_goal.position.y = y
@@ -47,7 +47,7 @@ def pose_pos(x, y, z):
     print(x_err, y_err, z_err)
 
 
-def pose_ori(x, y, z, w):
+def right_pose_ori(x, y, z, w):
     current_pose = right_arm.get_current_pose().pose
 
     pose_goal = geometry_msgs.msg.Pose()
@@ -68,19 +68,19 @@ def pose_ori(x, y, z, w):
     right_arm.clear_pose_targets()
 
 
-def move_joint(joint_values):
+def right_move_joint(joint_values):
     right_arm.set_joint_value_target(joint_values)
     right_arm.go(wait=True)
     right_arm.stop()
 
 
 
-def open():
+def right_open():
     pub_gripper.publish(Pr2GripperCommand(0.025, 32))
 
 
-def close():
+def right_close():
     pub_gripper.publish(Pr2GripperCommand(0.0, 32))
 
-def gripper_down():
-    pose_ori(*GRIPPER_POS)
+def right_gripper_down():
+    right_pose_ori(*GRIPPER_POS)
