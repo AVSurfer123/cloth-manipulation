@@ -27,25 +27,44 @@ def init_socket():
 
 
 def init_controller():
-    pub = rospy.Publisher(TOPIC_NAME, Pr2GripperCommand, queue_size=10)
+    left_gripper = rospy.Publisher(LEFT_GRIPPER_TOPIC, Pr2GripperCommand, queue_size=10)
+    right_gripper = rospy.Publisher(RIGHT_GRIPPER_TOPIC, Pr2GripperCommand, queue_size=10)
     #moveit_commander.roscpp_initialize(sys.argv)
     moveit_commander.roscpp_initialize(['joint_states:=/joint_states'])
     robot = moveit_commander.RobotCommander()
     left_arm = moveit_commander.MoveGroupCommander('left_arm')
     right_arm = moveit_commander.MoveGroupCommander('right_arm')
 
-    return pub, left_arm, right_arm
+    return left_gripper, right_gripper, left_arm, right_arm
 
+def get_arm(side):
+    if side == 'left':
+        return left_arm
+    elif side == 'right':
+        return right_arm
+    else:
+        return None
 
-def open_gripper():
+def get_gripper(side):
+    if side == 'left':
+        return left_gripper
+    elif side == 'right':
+        return right_gripper
+    else:
+        return None
+
+def open_gripper(side):
+    pub = get_gripper(side)
     pub.publish(Pr2GripperCommand(0.02, 32))
 
 
-def close_gripper():
+def close_gripper(side):
+    pub = get_gripper(side)
     pub.publish(Pr2GripperCommand(0.0, 32))
 
 
-def gripper_down():
+def gripper_down(side):
+    arm = get_arm(side)
     current_pose = arm.get_current_pose().pose
 
     pose_goal = geometry_msgs.msg.Pose()
@@ -65,24 +84,61 @@ def gripper_down():
     time.sleep(0.5)
 
 
-def reset_arm():
+def reset_arm(side):
     origin = ROBOT_ORIGIN[:]
-    if arm == right_arm:
+    if side == 'right':
         origin[1] = -origin[1]
-    move_arm(*origin)
-    gripper_down()
+    move_arm(side, *origin)
+    gripper_down(side)
 
 
-def move_arm(x, y, z=None):
+def move_both_arms(left_loc, right_loc):
+    left_arm = get_arm('left')
+    right_arm = get_arm('right')
+    for arm, loc in [(left_arm, left_loc), (right_arm, right_loc)]:
+        old_pose = arm.get_current_pose().pose
+        x,y,z = loc
+        pose_goal = geometry_msgs.msg.Pose()
+        pose_goal.position.x = x
+        pose_goal.position.y = y
+        pose_goal.position.z = z
+        pose_goal.orientation.x = old_pose.orientation.x
+        pose_goal.orientation.y = old_pose.orientation.y
+        pose_goal.orientation.z = old_pose.orientation.z
+        pose_goal.orientation.w = old_pose.orientation.w
+        arm.set_pose_target(pose_goal)
+
+    l_success = left_arm.go(wait=False)
+    r_success = right_arm.go(wait=True)
+    right_arm.stop()
+    left_arm.stop()
+    left_arm.clear_pose_targets()
+    right_arm.clear_pose_targets()
+
+    SIDES = ['left', 'right']
+    for side, loc in zip(SIDES, (left_loc, right_loc)):
+        arm = get_arm(side)
+        current_pose = arm.get_current_pose().pose
+        x,y,z = loc
+        x_err = np.abs(x - current_pose.position.x)
+        y_err = np.abs(y - current_pose.position.y)
+        z_err = np.abs(z - current_pose.position.z)
+        total_err = np.sqrt(x_err ** 2 + y_err ** 2 + z_err ** 2)
+        print('py2::{} error: {}'.format(side, total_err))
+
+    if not l_success:
+        print('py2::Left action failed...')
+    if not r_success:
+        print('py2::Right action failed...')
+
+def move_arm(side, x, y, z):
+    arm = get_arm(side)
     old_pose = arm.get_current_pose().pose
 
     pose_goal = geometry_msgs.msg.Pose()
     pose_goal.position.x = x
     pose_goal.position.y = y
-    if z is None:
-        pose_goal.position.z = old_pose.position.z
-    else:
-        pose_goal.position.z = z
+    pose_goal.position.z = z
     pose_goal.orientation.x = old_pose.orientation.x
     pose_goal.orientation.y = old_pose.orientation.y
     pose_goal.orientation.z = old_pose.orientation.z
@@ -121,32 +177,66 @@ def image_callback(msg):
         waiting_to_send_image = False
 
 
-def execute_action(location, delta):
-    start_loc, end_loc = location, location + delta * MAX_IMAGE_DELTA
-    start_loc = coord_image_to_robot(start_loc)
-    end_loc = coord_image_to_robot(end_loc)
+def execute_action(action, two_hand):
+    picks, deltas = action
+    if two_hand:
+        left_loc, left_delta, right_loc, right_delta = picks[0], deltas[0], picks[1], deltas[1]
 
-    print('pr2::Moving from pose {} to {}...'.format(start_loc, end_loc))
+        left_start, left_end = left_loc, left_loc + left_delta * MAX_IMAGE_DELTA
+        right_start, right_end = right_loc, right_loc + right_delta * MAX_IMAGE_DELTA
+        left_start, left_end, right_start, right_end = map(coord_image_to_robot, [left_start, left_end, right_start, right_end])
 
-    move_arm(start_loc[0], start_loc[1], Z_STATIONARY)
-    time.sleep(0.5)
-    move_arm(start_loc[0], start_loc[1], Z_DOWN)
-    time.sleep(0.5)
-    close_gripper()
-    time.sleep(2.5) # wait longer sin ce close doesn't block
-    move_arm(start_loc[0], start_loc[1], Z_UP)
-    time.sleep(0.5)
-    move_arm(end_loc[0], end_loc[1], Z_UP)
-    time.sleep(0.5)
-    move_arm(end_loc[0], end_loc[1], Z_DOWN)
-    time.sleep(0.5)
-    open_gripper()
-    time.sleep(2.5) # wait longer since open doesn't block
-    move_arm(end_loc[0], end_loc[1], Z_UP)
-    time.sleep(0.5)
+        print('pr2::Moving left from pose {} to {}...'.format(left_start, left_end))
+        print('pr2::Moving right from pose {} to {}...'.format(right_start, right_end))
 
-    reset_arm()
-    time.sleep(1)
+
+        move_both_arms(left_start, right_start, Z_STATIONARY)
+        time.sleep(0.5)
+        move_both_arms(left_start, right_start, Z_DOWN)
+        time.sleep(0.5)
+        close_gripper(main_side)
+        time.sleep(2.5)  # wait longer since close doesn't block
+        move_arm(main_side, start_loc[0], start_loc[1], Z_UP)
+        time.sleep(0.5)
+        move_arm(main_side, end_loc[0], end_loc[1], Z_UP)
+        time.sleep(0.5)
+        move_arm(main_side, end_loc[0], end_loc[1], Z_DOWN)
+        time.sleep(0.5)
+        open_gripper(main_side)
+        time.sleep(2.5)  # wait longer since open doesn't block
+        move_arm(main_side, end_loc[0], end_loc[1], Z_UP)
+        time.sleep(0.5)
+
+        reset_arm(main_side)
+        time.sleep(1)
+
+    else:
+        location, delta = picks[0], deltas[0]
+        start_loc, end_loc = location, location + delta * MAX_IMAGE_DELTA
+        start_loc = coord_image_to_robot(start_loc)
+        end_loc = coord_image_to_robot(end_loc)
+
+        print('pr2::Moving from pose {} to {}...'.format(start_loc, end_loc))
+
+        move_arm(main_side, start_loc[0], start_loc[1], Z_STATIONARY)
+        time.sleep(0.5)
+        move_arm(main_side, start_loc[0], start_loc[1], Z_DOWN)
+        time.sleep(0.5)
+        close_gripper(main_side)
+        time.sleep(2.5) # wait longer since close doesn't block
+        move_arm(main_side, start_loc[0], start_loc[1], Z_UP)
+        time.sleep(0.5)
+        move_arm(main_side, end_loc[0], end_loc[1], Z_UP)
+        time.sleep(0.5)
+        move_arm(main_side, end_loc[0], end_loc[1], Z_DOWN)
+        time.sleep(0.5)
+        open_gripper(main_side)
+        time.sleep(2.5) # wait longer since open doesn't block
+        move_arm(main_side, end_loc[0], end_loc[1], Z_UP)
+        time.sleep(0.5)
+
+        reset_arm(main_side)
+        time.sleep(1)
     print('pr2::Completed action')
 
 
@@ -164,8 +254,8 @@ signal.signal(signal.SIGINT, signal_handler)
 
 if __name__ == '__main__':
     socket = init_socket()
-    pub, left_arm, right_arm = init_controller()
-    arm = right_arm  # Choose which arm to use
+    left_gripper, right_gripper, left_arm, right_arm = init_controller()
+    main_side = 'right'  # Choose the side to use if one-handed
 
     rospy.init_node('towel_folding_py2')
     rospy.Subscriber("/camera/rgb/image_raw", Image, image_callback)
@@ -181,14 +271,17 @@ if __name__ == '__main__':
 
         data = socket.recv()
         data = zlib.decompress(data)
-        action = pickle.loads(data)
+        action, two_hand = pickle.loads(data)
 
         print('pr2::Timestep {}'.format(time_step))
         print('pr2::Received action {}'.format(action))
-        location, delta = action[:2], action[2:]
-        assert len(location) == len(delta) == 2
+        if two_hand:
+             = action
+        else:
+            location, delta = action[:2], action[2:]
+            assert len(location) == len(delta) == 2
 
-        execute_action(location, delta)
+        execute_action(action, two_hand)
         send_message = True
         waiting_to_send_image = True
         time_step += 1

@@ -111,25 +111,26 @@ def hsv2rgb(h, s, v):
 
 def update_image(image, action):
     image, action = image.copy(), action.copy()
-    location, delta = action[:2], action[2:]
+    picks, deltas = action
     image = preprocess_image(image, resize=False)
 
     # Image to label pick (yellow) and place (red) positions
-    start_loc, end_loc = location, location + delta * MAX_IMAGE_DELTA
-    start_loc, end_loc = coord_image_to_robot(start_loc), coord_image_to_robot(end_loc)
-    start_loc = (start_loc - b).dot(np.linalg.inv(A))
-    end_loc = (end_loc - b).dot(np.linalg.inv(A))
-    start_loc, end_loc = start_loc - IMAGE_ORIGIN, end_loc - IMAGE_ORIGIN
-
-    start_loc, end_loc = start_loc.astype('int32'), end_loc.astype('int32')
-    sr, sc = start_loc
-    er, ec = end_loc
-    radius = 4
-
     start_goal_image = image.copy()
     h, w = start_goal_image.shape[:2]
-    start_goal_image[max(0, sr-radius):min(h, sr+radius), max(0, sc-radius):min(w, sc+radius)] = [0, 0, 0]
-    start_goal_image[max(0, er-radius):min(h, er+radius), max(0, ec-radius):min(w, ec+radius)] = [255, 0, 0]
+    for location, delta in zip(picks, deltas):
+        start_loc, end_loc = location, location + delta * MAX_IMAGE_DELTA
+        start_loc, end_loc = coord_image_to_robot(start_loc), coord_image_to_robot(end_loc)
+        start_loc = (start_loc - b).dot(np.linalg.inv(A))
+        end_loc = (end_loc - b).dot(np.linalg.inv(A))
+        start_loc, end_loc = start_loc - IMAGE_ORIGIN, end_loc - IMAGE_ORIGIN
+
+        start_loc, end_loc = start_loc.astype('int32'), end_loc.astype('int32')
+        sr, sc = start_loc
+        er, ec = end_loc
+        radius = 4
+
+        start_goal_image[max(0, sr-radius):min(h, sr+radius), max(0, sc-radius):min(w, sc+radius)] = [0, 0, 0]
+        start_goal_image[max(0, er-radius):min(h, er+radius), max(0, ec-radius):min(w, ec+radius)] = [255, 0, 0]
 
     ims[0].set_data(start_goal_image)
 
@@ -197,7 +198,7 @@ def update_image(image, action):
     binary_image = seg_image.copy()
     binary_image = (binary_image == 255).all(axis=-1)
     reward_intersection = (binary_image & ground_truth_seg).sum() / ground_truth_seg.sum()
-    reward_iou = (binary_image & ground_truth_seg).sum() / (binary_image | ground_truth_seg).sum()
+    reward_iou = (binary_image & ground_truth_seg).sum() / (binary_image | ground_truth_seg).sum(self.actions_model_for_fixed_latents)
 
     seg_image[start_row, start_col:start_col + CLOTH_WIDTH] = [255, 0, 0]
     seg_image[start_row + CLOTH_HEIGHT, start_col:start_col + CLOTH_WIDTH] = [255, 0, 0]
@@ -222,7 +223,7 @@ def update_image(image, action):
 def segment_image(image):
     h, w, c = image.shape
     image = image.reshape((-1, c))
-    dist_blue = np.linalg.norm(image - WHITE, axis=-1)
+    dist_blue = np.linalg.norm(image - BLUE, axis=-1)
     dist_green = np.linalg.norm(image - GREEN, axis=-1)
     dist = np.vstack((dist_green, dist_blue))
     return np.argmin(dist, axis=0).reshape((h, w))
@@ -237,8 +238,51 @@ def get_seg_idxs(image):
 def generate_action(policy, image, mode):
     image = preprocess_image(image)
     locations = get_seg_idxs(image)
+    sorted_loc = np.sort(locations, axis=0)
+    left_loc = sorted_loc[sorted_loc[:, 0] <= IMAGE_INPUT_SIZE//2]
+    right_loc = sorted_loc[sorted_loc[:, 0] > IMAGE_INPUT_SIZE//2]
+    two_hand = False
+    if mode == 'two_hand_maxq': # TODO
+        image_input = np.tile(image[None, :, :, :], (locations.shape[0], 1, 1, 1))
+        cv2.imshow(image_input)
+        tiled_locations = np.tile(locations, 50)
+        all_actions = policy.actions_np([tiled_locations, image_input])[1]
+        all_qs = [Q.predict([all_actions, tiled_locations, image_input]) for Q in Qs]
+        all_qs = np.min(all_qs, axis=0)
 
-    if mode == 'maxq_sample':
+        threshold = np.percentile(all_qs, PERCENTILE)
+        idxs = np.arange(len(all_qs))[:, None][all_qs > threshold]
+        all_qs = all_qs[all_qs > threshold]
+        all_qs = (all_qs - all_qs.min()) / (all_qs.max() - all_qs.min())
+        all_qs /= TEMPERATURE
+        all_qs -= all_qs.max()
+        all_qs = np.exp(all_qs)
+        all_qs /= all_qs.sum()
+
+        uniform = np.random.rand(*all_qs.shape)
+        uniform = np.clip(uniform, 1e-5, 1 - 1e-5)
+        gumbel = -np.log(-np.log(uniform))
+        idx = idxs[np.argmax(all_qs + gumbel)]
+
+        print('Percentile', threshold)
+
+        location = locations[idx]
+        delta = all_actions[idx, :2]
+        two_hand = True
+
+    elif mode == 'two_hand_policy_spread': # TODO
+        two_hand = True
+    elif mode == 'two_hand_random_spread': # TODO
+        left_pick = np.random.choice(left_loc.shape, 1)
+        left_delta = np.random.uniform(-1, 0, (2, 1))
+        dist = np.linalg.norm(right_loc - left_pick)
+        right_pick = right_loc[np.argmax(dist)]
+        right_delta = -left_delta
+        picks = np.array([left_pick, right_pick])
+        deltas = np.array([left_delta, right_delta])
+        two_hand = True
+
+    elif mode == 'maxq_sample':
         print('Using maxq_sample')
         image_input = np.tile(image[None, :, :, :], (locations.shape[0], 1, 1, 1))
         tiled_locations = np.tile(locations, 50)
@@ -256,7 +300,6 @@ def generate_action(policy, image, mode):
         uniform = np.clip(uniform, 1e-5, 1 - 1e-5)
         gumbel = -np.log(-np.log(uniform))
         idx = np.argmax(all_qs + gumbel)
-
 
         location = locations[idx]
         delta = all_actions[idx, :2]
@@ -320,10 +363,16 @@ def generate_action(policy, image, mode):
     else:
         raise Exception(mode)
 
-    delta[1] = -delta[1]
-    delta = delta[[1, 0]]
+    if not two_hand:
+        picks = np.array([location])
+        deltas = np.array([delta])
 
-    return np.concatenate((location, delta)).astype('float32')
+    for i in range(len(deltas)):
+        deltas[i][1] = -deltas[i][1]
+        deltas[i] = deltas[i][[1, 0]]
+
+
+    return (picks.astype('float32'), deltas.astype('float32')), two_hand
 
 
 def preprocess_image(image, resize=True):
@@ -368,7 +417,7 @@ if __name__ == '__main__':
         data = zlib.decompress(data)
         image = pickle.loads(data, encoding='latin1')
         print('py3::Received image, executing policy')
-        action = generate_action(policy, image, mode=MODE)
+        action, two_hand = generate_action(policy, image, mode=MODE)
         reward_intersection, reward_iou, binary_image = update_image(image, action)
         print('Reward Intersection: {:.4f}, Reward IOU: {:.4f}'.format(reward_intersection, reward_iou))
 
@@ -385,7 +434,7 @@ if __name__ == '__main__':
         np.save(os.path.join(folder, 'rewards', 'iou.npy'), r2)
 
         print('py3::Sending action')
-        data = pickle.dumps(action, protocol=2)
+        data = pickle.dumps((action, two_hand), protocol=2)
         data = zlib.compress(data)
         socket.send(data)
         time_step += 1

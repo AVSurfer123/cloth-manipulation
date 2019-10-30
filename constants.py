@@ -11,7 +11,8 @@ Z_STATIONARY = 1.2
 ROBOT_ORIGIN = [0.2, 0.55, Z_STATIONARY]
 
 
-TOPIC_NAME = '/r_gripper_controller/command'  # Change to l or r depending on which arm is wanted
+RIGHT_GRIPPER_TOPIC = '/r_gripper_controller/command'
+LEFT_GRIPPER_TOPIC = '/l_gripper_controller/command'
 
 N_ACTIONS = 200
 
