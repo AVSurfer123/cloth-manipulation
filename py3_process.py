@@ -367,11 +367,13 @@ def generate_action(policy, image, mode):
         picks = np.array([location])
         deltas = np.array([delta])
 
+    # Convert from Cartesian x,y to image x,y
     for i in range(len(deltas)):
         deltas[i][1] = -deltas[i][1]
         deltas[i] = deltas[i][[1, 0]]
 
-
+    # Point list is length 2 if two_hand else 1
+    # RETURN TYPE: ((pick locations: List[Tuple[float, float]], deltas: List[Tuple[float, float]]), two_hand: bool)
     return (picks.astype('float32'), deltas.astype('float32')), two_hand
 
 

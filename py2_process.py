@@ -34,8 +34,9 @@ def init_controller():
     robot = moveit_commander.RobotCommander()
     left_arm = moveit_commander.MoveGroupCommander('left_arm')
     right_arm = moveit_commander.MoveGroupCommander('right_arm')
+    arms = moveit_commander.MoveGroupCommander('arms')
 
-    return left_gripper, right_gripper, left_arm, right_arm
+    return left_gripper, right_gripper, left_arm, right_arm, arms
 
 def get_arm(side):
     if side == 'left':
@@ -88,61 +89,68 @@ def reset_arm(side):
     origin = ROBOT_ORIGIN[:]
     if side == 'right':
         origin[1] = -origin[1]
-    move_arm(side, *origin)
-    gripper_down(side)
+    move_arm(side, origin, GRIPPER_DOWN_ORIENT)
+    # gripper_down(side)
 
 
-def move_both_arms(left_loc, right_loc):
-    left_arm = get_arm('left')
-    right_arm = get_arm('right')
-    for arm, loc in [(left_arm, left_loc), (right_arm, right_loc)]:
-        old_pose = arm.get_current_pose().pose
+def reset_both_arms():
+    left_origin = ROBOT_ORIGIN[:]
+    right_origin = ROBOT_ORIGIN[:]
+    right_origin[1] = -right_origin[1]
+    move_both_arms(left_origin, right_origin, GRIPPER_DOWN_ORIENT, GRIPPER_DOWN_ORIENT)
+    # orient = [0.137595297951, 0.687421561519, -0.157305941758, 0.695538619653]
+    # gripper_down('left')
+    # gripper_down('right')
+
+
+def move_both_arms(left_loc, right_loc, left_orient=None, right_orient=None):
+    for effector, loc, orient in [('l_wrist_roll_link', left_loc, left_orient), ('r_wrist_roll_link', right_loc, right_orient)]:
+        old_pose = arms.get_current_pose(effector).pose
         x,y,z = loc
         pose_goal = geometry_msgs.msg.Pose()
         pose_goal.position.x = x
         pose_goal.position.y = y
         pose_goal.position.z = z
-        pose_goal.orientation.x = old_pose.orientation.x
-        pose_goal.orientation.y = old_pose.orientation.y
-        pose_goal.orientation.z = old_pose.orientation.z
-        pose_goal.orientation.w = old_pose.orientation.w
-        arm.set_pose_target(pose_goal)
+        if orient:
+            pose_goal.orientation = geometry_msgs.msg.Quaternion(*orient)
+        else:
+            pose_goal.orientation.x = old_pose.orientation.x
+            pose_goal.orientation.y = old_pose.orientation.y
+            pose_goal.orientation.z = old_pose.orientation.z
+            pose_goal.orientation.w = old_pose.orientation.w
+        arms.set_pose_target(pose_goal, effector)
 
-    l_success = left_arm.go(wait=False)
-    r_success = right_arm.go(wait=True)
-    right_arm.stop()
-    left_arm.stop()
-    left_arm.clear_pose_targets()
-    right_arm.clear_pose_targets()
+    success = arms.go()
+    arms.clear_pose_targets()
 
-    SIDES = ['left', 'right']
-    for side, loc in zip(SIDES, (left_loc, right_loc)):
-        arm = get_arm(side)
-        current_pose = arm.get_current_pose().pose
+    for effector, loc in [('l_wrist_roll_link', left_loc), ('r_wrist_roll_link', right_loc)]:
+        current_pose = arms.get_current_pose(effector).pose
         x,y,z = loc
         x_err = np.abs(x - current_pose.position.x)
         y_err = np.abs(y - current_pose.position.y)
         z_err = np.abs(z - current_pose.position.z)
         total_err = np.sqrt(x_err ** 2 + y_err ** 2 + z_err ** 2)
-        print('py2::{} error: {}'.format(side, total_err))
+        print('py2::{} error: {}'.format(effector, total_err))
 
-    if not l_success:
-        print('py2::Left action failed...')
-    if not r_success:
-        print('py2::Right action failed...')
+    if not success:
+        print('py2::Two hand action failed...')
 
-def move_arm(side, x, y, z):
+
+def move_arm(side, loc, orient=None):
     arm = get_arm(side)
     old_pose = arm.get_current_pose().pose
-
+    x, y, z = loc
     pose_goal = geometry_msgs.msg.Pose()
     pose_goal.position.x = x
     pose_goal.position.y = y
     pose_goal.position.z = z
-    pose_goal.orientation.x = old_pose.orientation.x
-    pose_goal.orientation.y = old_pose.orientation.y
-    pose_goal.orientation.z = old_pose.orientation.z
-    pose_goal.orientation.w = old_pose.orientation.w
+    if orient:
+        pose_goal.orientation = geometry_msgs.msg.Quaternion(*orient)
+    else:
+        pose_goal.orientation.x = old_pose.orientation.x
+        pose_goal.orientation.y = old_pose.orientation.y
+        pose_goal.orientation.z = old_pose.orientation.z
+        pose_goal.orientation.w = old_pose.orientation.w
 
     arm.set_pose_target(pose_goal)
     success = arm.go(wait=True)
@@ -157,7 +165,7 @@ def move_arm(side, x, y, z):
 
     print('py2::Error: {}'.format(total_err))
     if not success:
-        print('py2::Action failed...')
+        print('py2::{} arm action failed...'.format(side))
 
 
 def image_callback(msg):
@@ -194,20 +202,22 @@ def execute_action(action, two_hand):
         time.sleep(0.5)
         move_both_arms(left_start, right_start, Z_DOWN)
         time.sleep(0.5)
-        close_gripper(main_side)
+        close_gripper('left')
+        close_gripper('right')
         time.sleep(2.5)  # wait longer since close doesn't block
-        move_arm(main_side, start_loc[0], start_loc[1], Z_UP)
+        move_both_arms(left_start, right_start, Z_UP)
         time.sleep(0.5)
-        move_arm(main_side, end_loc[0], end_loc[1], Z_UP)
+        move_both_arms(left_end, right_end, Z_UP)
         time.sleep(0.5)
-        move_arm(main_side, end_loc[0], end_loc[1], Z_DOWN)
+        move_both_arms(left_end, right_end, Z_DOWN)
         time.sleep(0.5)
-        open_gripper(main_side)
+        open_gripper('right')
+        open_gripper('left')
         time.sleep(2.5)  # wait longer since open doesn't block
-        move_arm(main_side, end_loc[0], end_loc[1], Z_UP)
+        move_both_arms(left_end, right_end, Z_UP)
         time.sleep(0.5)
 
-        reset_arm(main_side)
+        reset_both_arms()
         time.sleep(1)
 
     else:
@@ -254,7 +264,7 @@ signal.signal(signal.SIGINT, signal_handler)
 
 if __name__ == '__main__':
     socket = init_socket()
-    left_gripper, right_gripper, left_arm, right_arm = init_controller()
+    left_gripper, right_gripper, left_arm, right_arm, arms = init_controller()
     main_side = 'right'  # Choose the side to use if one-handed
 
     rospy.init_node('towel_folding_py2')
@@ -262,8 +272,9 @@ if __name__ == '__main__':
 
     print('py2::Starting...')
     time_step = 0
-    open_gripper()
-    reset_arm()
+    open_gripper('left')
+    open_gripper('right')
+    reset_both_arms()
     time.sleep(3)
     while time_step < N_ACTIONS:
         if waiting_to_send_image:
@@ -276,9 +287,12 @@ if __name__ == '__main__':
         print('pr2::Timestep {}'.format(time_step))
         print('pr2::Received action {}'.format(action))
         if two_hand:
-             = action
+             picks, deltas = action
+             assert len(picks) == len(deltas) == 2
         else:
-            location, delta = action[:2], action[2:]
+            picks, deltas = action
+            assert len(picks) == len(deltas) == 1
+            location, delta = picks[0], deltas[0]
             assert len(location) == len(delta) == 2
 
         execute_action(action, two_hand)
