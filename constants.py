@@ -1,12 +1,13 @@
 import numpy as np
 
-W = np.load('latest_weights.npy')
+W = np.load('taped_weights.npy')
 A = W[1:]
 b = W[0]
 
 Z_UP = 1.075
-Z_DOWN = 1.00
+Z_DOWN = 1.02
 Z_STATIONARY = 1.2
+RIGHT_Z_OFFSET = -.04
 
 ROBOT_ORIGIN = [0.2, 0.55, Z_STATIONARY]
 GRIPPER_DOWN_ORIENT = [0.137595297951, 0.687421561519, -0.157305941758, 0.695538619653]
@@ -37,7 +38,7 @@ GREEN = np.array([[0, 255, 0]])
 WHITE = np.array([[255, 255, 255]])
 YELLOW = np.array([[255, 255, 0]])
 
-MODE = 'q_percentile'
+MODE = 'two_hand_policy_spread'
 TEMPERATURE = 1.0
 PERCENTILE = 75
 POLICY_NAME = 'cloth_multi_video'

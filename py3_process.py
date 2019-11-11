@@ -109,30 +109,41 @@ def hsv2rgb(h, s, v):
     return int(r), int(g), int(b)
 
 
-def update_image(image, action):
-    image, action = image.copy(), action.copy()
-    picks, deltas = action
+def update_image(image, picks, deltas):
+    image, picks, deltas = image.copy(), picks.copy(), deltas.copy()
     image = preprocess_image(image, resize=False)
 
-    # Image to label pick (yellow) and place (red) positions
+    # Image to label pick (black) and place (red) positions
     start_goal_image = image.copy()
-    h, w = start_goal_image.shape[:2]
+    downsampled_image = cv2.resize(image.copy(), (IMAGE_INPUT_SIZE, IMAGE_INPUT_SIZE))
     for location, delta in zip(picks, deltas):
         start_loc, end_loc = location, location + delta * MAX_IMAGE_DELTA
-        start_loc, end_loc = coord_image_to_robot(start_loc), coord_image_to_robot(end_loc)
-        start_loc = (start_loc - b).dot(np.linalg.inv(A))
-        end_loc = (end_loc - b).dot(np.linalg.inv(A))
-        start_loc, end_loc = start_loc - IMAGE_ORIGIN, end_loc - IMAGE_ORIGIN
+        # Image showing down-sampled version
+        h, w = downsampled_image.shape[:2]
+        sr, sc = start_loc.astype('int32')
+        er, ec = end_loc.astype('int32')
+        radius = 1
+        downsampled_image[max(0, sr - radius):min(h, sr + radius), max(0, sc - radius):min(w, sc + radius)] = [0, 0, 0]
+        downsampled_image[max(0, er - radius):min(h, er + radius), max(0, ec - radius):min(w, ec + radius)] = [255, 0, 0]
 
-        start_loc, end_loc = start_loc.astype('int32'), end_loc.astype('int32')
-        sr, sc = start_loc
-        er, ec = end_loc
+        h, w = start_goal_image.shape[:2]
+        start_loc += 0.5
+        end_loc += 0.5
+        start_loc *= float(IMAGE_SIZE) / IMAGE_INPUT_SIZE
+        end_loc *= float(IMAGE_SIZE) / IMAGE_INPUT_SIZE
+        # start_loc, end_loc = coord_image_to_robot(start_loc), coord_image_to_robot(end_loc)
+        # start_loc = (start_loc - b).dot(np.linalg.inv(A))
+        # end_loc = (end_loc - b).dot(np.linalg.inv(A))
+        # start_loc, end_loc = start_loc - IMAGE_ORIGIN, end_loc - IMAGE_ORIGIN
         radius = 4
+        sr, sc = start_loc.astype('int32')
+        er, ec = end_loc.astype('int32')
 
         start_goal_image[max(0, sr-radius):min(h, sr+radius), max(0, sc-radius):min(w, sc+radius)] = [0, 0, 0]
         start_goal_image[max(0, er-radius):min(h, er+radius), max(0, ec-radius):min(w, ec+radius)] = [255, 0, 0]
 
     ims[0].set_data(start_goal_image)
+    ims[4].set_data(downsampled_image)
 
     if MODE != 'model_pick' and MODE != 'random_no_segmentation':
         # Image showing actions of perturbation positions
@@ -198,7 +209,7 @@ def update_image(image, action):
     binary_image = seg_image.copy()
     binary_image = (binary_image == 255).all(axis=-1)
     reward_intersection = (binary_image & ground_truth_seg).sum() / ground_truth_seg.sum()
-    reward_iou = (binary_image & ground_truth_seg).sum() / (binary_image | ground_truth_seg).sum(self.actions_model_for_fixed_latents)
+    reward_iou = (binary_image & ground_truth_seg).sum() / (binary_image | ground_truth_seg).sum()
 
     seg_image[start_row, start_col:start_col + CLOTH_WIDTH] = [255, 0, 0]
     seg_image[start_row + CLOTH_HEIGHT, start_col:start_col + CLOTH_WIDTH] = [255, 0, 0]
@@ -208,9 +219,6 @@ def update_image(image, action):
     seg_image = cv2.resize(seg_image, (IMAGE_SIZE, IMAGE_SIZE))
     ims[3].set_data(seg_image)
 
-    # Image showing down-sampled version
-    downsampled_image = cv2.resize(image.copy(), (IMAGE_INPUT_SIZE, IMAGE_INPUT_SIZE))
-    ims[4].set_data(downsampled_image)
 
     # Update all plots
     fig.canvas.draw()
@@ -241,47 +249,68 @@ def generate_action(policy, image, mode):
     sorted_loc = np.sort(locations, axis=0)
     left_loc = sorted_loc[sorted_loc[:, 0] <= IMAGE_INPUT_SIZE//2]
     right_loc = sorted_loc[sorted_loc[:, 0] > IMAGE_INPUT_SIZE//2]
+    assert (len(left_loc) + len(right_loc)) == len(locations) == len(sorted_loc)
+    print("Locations:", locations)
+    print("Sorted loc:", sorted_loc)
+    print("Left loc:",left_loc)
+    print("Right loc:", right_loc)
     two_hand = False
     if mode == 'two_hand_maxq': # TODO
-        image_input = np.tile(image[None, :, :, :], (locations.shape[0], 1, 1, 1))
-        cv2.imshow(image_input)
-        tiled_locations = np.tile(locations, 50)
-        all_actions = policy.actions_np([tiled_locations, image_input])[1]
-        all_qs = [Q.predict([all_actions, tiled_locations, image_input]) for Q in Qs]
-        all_qs = np.min(all_qs, axis=0)
+        picks = []
+        deltas = []
+        for locations in [left_loc, right_loc]:
+            image_input = np.tile(image[None, :, :, :], (locations.shape[0], 1, 1, 1))
+            # cv2.imshow('Input image', image_input)
+            # cv2.waitKey(0)
+            tiled_locations = np.tile(locations, 50)
+            all_actions = policy.actions_np([tiled_locations, image_input])[1]
+            all_qs = [Q.predict([all_actions, tiled_locations, image_input]) for Q in Qs]
+            all_qs = np.min(all_qs, axis=0)
 
-        threshold = np.percentile(all_qs, PERCENTILE)
-        idxs = np.arange(len(all_qs))[:, None][all_qs > threshold]
-        all_qs = all_qs[all_qs > threshold]
-        all_qs = (all_qs - all_qs.min()) / (all_qs.max() - all_qs.min())
-        all_qs /= TEMPERATURE
-        all_qs -= all_qs.max()
-        all_qs = np.exp(all_qs)
-        all_qs /= all_qs.sum()
+            threshold = np.percentile(all_qs, PERCENTILE)
+            idxs = np.arange(len(all_qs))[:, None][all_qs > threshold]
+            all_qs = all_qs[all_qs > threshold]
+            all_qs = (all_qs - all_qs.min()) / (all_qs.max() - all_qs.min())
+            all_qs /= TEMPERATURE
+            all_qs -= all_qs.max()
+            all_qs = np.exp(all_qs)
+            all_qs /= all_qs.sum()
 
-        uniform = np.random.rand(*all_qs.shape)
-        uniform = np.clip(uniform, 1e-5, 1 - 1e-5)
-        gumbel = -np.log(-np.log(uniform))
-        idx = idxs[np.argmax(all_qs + gumbel)]
+            uniform = np.random.rand(*all_qs.shape)
+            uniform = np.clip(uniform, 1e-5, 1 - 1e-5)
+            gumbel = -np.log(-np.log(uniform))
+            idx = idxs[np.argmax(all_qs + gumbel)]
 
-        print('Percentile', threshold)
+            print('Percentile', threshold)
 
-        location = locations[idx]
-        delta = all_actions[idx, :2]
+            location = locations[idx]
+            delta = all_actions[idx, :2]
+            print(location)
+            print(delta)
+            picks.append(location.reshape((1, 2)))
+            deltas.append(delta.reshape((1, 2)))
+            # np.append(deltas, delta.reshape((1,2)), axis=0)
         two_hand = True
-
-    elif mode == 'two_hand_policy_spread': # TODO
+        picks = np.concatenate(picks, axis=0)
+        deltas = np.concatenate(deltas, axis=0)
+    elif mode == 'two_hand_policy_spread':
+        left_pick = left_loc[np.random.choice(len(left_loc), 1)]
+        dist = np.linalg.norm(right_loc - left_pick)
+        right_pick = right_loc[np.argmax(dist)]
+        picks = np.vstack([left_pick, right_pick])
+        tiled_locations = np.tile(picks, 50)
+        image_input = np.tile(image[None, :, :, :], (picks.shape[0], 1, 1, 1))
+        deltas = policy.actions_np([tiled_locations, image_input])[1][:, :2]
         two_hand = True
-    elif mode == 'two_hand_random_spread': # TODO
-        left_pick = np.random.choice(left_loc.shape, 1)
-        left_delta = np.random.uniform(-1, 0, (2, 1))
+    elif mode == 'two_hand_random_spread':
+        left_pick = left_loc[np.random.choice(len(left_loc), 1)]
+        left_delta = np.random.uniform(-1, 0, (1, 2))
         dist = np.linalg.norm(right_loc - left_pick)
         right_pick = right_loc[np.argmax(dist)]
         right_delta = -left_delta
-        picks = np.array([left_pick, right_pick])
-        deltas = np.array([left_delta, right_delta])
+        picks = np.vstack([left_pick, right_pick])
+        deltas = np.vstack([left_delta, right_delta])
         two_hand = True
-
     elif mode == 'maxq_sample':
         print('Using maxq_sample')
         image_input = np.tile(image[None, :, :, :], (locations.shape[0], 1, 1, 1))
@@ -364,17 +393,20 @@ def generate_action(policy, image, mode):
         raise Exception(mode)
 
     if not two_hand:
-        picks = np.array([location])
-        deltas = np.array([delta])
+        picks = np.expand_dims(location, axis=0)
+        deltas = np.expand_dims(delta, axis=0)
 
-    # Convert from Cartesian x,y to image x,y
+    print("Picks:", picks)
+    print("Deltas:", deltas)
+
+    # Convert from Cartesian x,y delta to image x,y delta
     for i in range(len(deltas)):
         deltas[i][1] = -deltas[i][1]
         deltas[i] = deltas[i][[1, 0]]
 
     # Point list is length 2 if two_hand else 1
     # RETURN TYPE: ((pick locations: List[Tuple[float, float]], deltas: List[Tuple[float, float]]), two_hand: bool)
-    return (picks.astype('float32'), deltas.astype('float32')), two_hand
+    return picks.astype('float32'), deltas.astype('float32'), two_hand
 
 
 def preprocess_image(image, resize=True):
@@ -419,8 +451,8 @@ if __name__ == '__main__':
         data = zlib.decompress(data)
         image = pickle.loads(data, encoding='latin1')
         print('py3::Received image, executing policy')
-        action, two_hand = generate_action(policy, image, mode=MODE)
-        reward_intersection, reward_iou, binary_image = update_image(image, action)
+        picks, deltas, two_hand = generate_action(policy, image, mode=MODE)
+        reward_intersection, reward_iou, binary_image = update_image(image, picks, deltas)
         print('Reward Intersection: {:.4f}, Reward IOU: {:.4f}'.format(reward_intersection, reward_iou))
 
         r1.append(reward_intersection)
@@ -436,7 +468,7 @@ if __name__ == '__main__':
         np.save(os.path.join(folder, 'rewards', 'iou.npy'), r2)
 
         print('py3::Sending action')
-        data = pickle.dumps((action, two_hand), protocol=2)
+        data = pickle.dumps((picks, deltas, two_hand), protocol=2)
         data = zlib.compress(data)
         socket.send(data)
         time_step += 1

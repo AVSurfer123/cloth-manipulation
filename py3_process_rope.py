@@ -237,8 +237,57 @@ def get_seg_idxs(image):
 def generate_action(policy, image, mode):
     image = preprocess_image(image)
     locations = get_seg_idxs(image)
+    sorted_loc = np.sort(locations, axis=0)
+    left_loc = sorted_loc[sorted_loc[:, 0] <= IMAGE_INPUT_SIZE//2]
+    right_loc = sorted_loc[sorted_loc[:, 0] > IMAGE_INPUT_SIZE//2]
+    two_hand = False
+    if mode == 'two_hand_maxq': # TODO
+        image_input = np.tile(image[None, :, :, :], (locations.shape[0], 1, 1, 1))
+        cv2.imshow(image_input)
+        tiled_locations = np.tile(locations, 50)
+        all_actions = policy.actions_np([tiled_locations, image_input])[1]
+        all_qs = [Q.predict([all_actions, tiled_locations, image_input]) for Q in Qs]
+        all_qs = np.min(all_qs, axis=0)
 
-    if mode == 'maxq_sample':
+        threshold = np.percentile(all_qs, PERCENTILE)
+        idxs = np.arange(len(all_qs))[:, None][all_qs > threshold]
+        all_qs = all_qs[all_qs > threshold]
+        all_qs = (all_qs - all_qs.min()) / (all_qs.max() - all_qs.min())
+        all_qs /= TEMPERATURE
+        all_qs -= all_qs.max()
+        all_qs = np.exp(all_qs)
+        all_qs /= all_qs.sum()
+
+        uniform = np.random.rand(*all_qs.shape)
+        uniform = np.clip(uniform, 1e-5, 1 - 1e-5)
+        gumbel = -np.log(-np.log(uniform))
+        idx = idxs[np.argmax(all_qs + gumbel)]
+
+        print('Percentile', threshold)
+
+        location = locations[idx]
+        delta = all_actions[idx, :2]
+        two_hand = True
+
+    elif mode == 'two_hand_policy_spread': # TODO
+        left_pick = left_loc[np.random.choice(len(left_loc), 1)]
+        dist = np.linalg.norm(right_loc - left_pick)
+        right_pick = right_loc[np.argmax(dist)]
+        picks = np.vstack([left_pick, right_pick])
+        tiled_locations = np.tile(picks, 50)
+        image_input = np.tile(image[None, :, :, :], (picks.shape[0], 1, 1, 1))
+        deltas = policy.actions_np([tiled_locations, image_input])[1][:, :2]
+        two_hand = True
+    elif mode == 'two_hand_random_spread': # TODO
+        left_pick = left_loc[np.random.choice(len(left_loc), 1)]
+        left_delta = np.random.uniform(-1, 0, (1, 2))
+        dist = np.linalg.norm(right_loc - left_pick)
+        right_pick = right_loc[np.argmax(dist)]
+        right_delta = -left_delta
+        picks = np.vstack([left_pick, right_pick])
+        deltas = np.vstack([left_delta, right_delta])
+        two_hand = True
+    elif mode == 'maxq_sample':
         print('Using maxq_sample')
         image_input = np.tile(image[None, :, :, :], (locations.shape[0], 1, 1, 1))
         tiled_locations = np.tile(locations, 50)
@@ -368,8 +417,8 @@ if __name__ == '__main__':
         data = zlib.decompress(data)
         image = pickle.loads(data, encoding='latin1')
         print('py3::Received image, executing policy')
-        action = generate_action(policy, image, mode=MODE)
-        reward, binary_image = update_image(image, action)
+        picks, deltas, two_hand = generate_action(policy, image, mode=MODE)
+        reward, binary_image = update_image(image, picks, deltas)
         print('Reward: {:.4f}'.format(reward))
 
         r1.append(reward)
@@ -383,7 +432,7 @@ if __name__ == '__main__':
         np.save(os.path.join(folder, 'rewards', 'intersection.npy'), r1)
 
         print('py3::Sending action')
-        data = pickle.dumps(action, protocol=2)
+        data = pickle.dumps((picks, deltas, two_hand), protocol=2)
         data = zlib.compress(data)
         socket.send(data)
         time_step += 1
