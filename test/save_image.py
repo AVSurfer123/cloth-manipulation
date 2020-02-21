@@ -15,10 +15,10 @@ def callback(msg):
         bridge = cv_bridge.CvBridge()
         image = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        # s = 300
-        # r, c = 130, 175
-        # image = image[r:r+s, c:c+s, :]
-        # image = cv2.resize(image, (64, 64))
+        s = 300
+        r, c = 130, 175
+        image = image[r:r+s, c:c+s, :]
+        image = cv2.resize(image, (64, 64))
 
         if image_name is not None:
             path = join('images', image_name)

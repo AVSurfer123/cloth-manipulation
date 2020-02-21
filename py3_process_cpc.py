@@ -92,7 +92,7 @@ def segment_image(image):
 def get_seg_idxs(image):
     seg = segment_image(image)
     locations = np.argwhere(seg).astype('float32')
-    return 2 * (locations / 63.) - 1
+    return locations
 
 
 def run_single(model, *args):
@@ -106,33 +106,35 @@ def sample_actions(locations, n):
 
 
 def generate_action(encoder, trans, current_image, goal_image):
-    current_image = preprocess_image(current_image)
-    goal_image = preprocess_image(goal_image)
-    locations = get_seg_idxs(image)
+    locations = 2 * (get_seg_idxs(preprocess_image(current_image)) / 63.) - 1
+    current_image = preprocess_image(current_image, to_torch=True)
 
-    z_current, z_goal = encoder(current_image), encoder(goal_image)
+    z_current, z_goal = run_single(encoder, current_image), run_single(encoder, goal_image)
     z_current, z_goal = z_current.unsqueeze(0), z_goal.unsqueeze(0)
-    n_trials = 100
+    n_trials = 1000
     with torch.no_grad():
         actions = torch.FloatTensor(sample_actions(locations, n_trials)).cuda()
         zs = trans(z_current.repeat(n_trials, 1), actions)
         dists = torch.norm((zs - z_goal).view(n_trials, -1), dim=-1)
         idx = torch.argmin(dists)
     action = actions[idx].cpu().numpy()
+    action[:2] = (action[:2] * 0.5 + 0.5) * 63
     return action
 
 
-def preprocess_image(image, resize=True):
+def preprocess_image(image, resize=True, to_torch=False):
     image = image[IMAGE_ORIGIN[0]:IMAGE_ORIGIN[0] + IMAGE_SIZE,
             IMAGE_ORIGIN[1]:IMAGE_ORIGIN[1] + IMAGE_SIZE, :]
     if resize:
         image = cv2.resize(image, (IMAGE_INPUT_SIZE, IMAGE_INPUT_SIZE))
+    if to_torch:
+        image = 2 * torch.FloatTensor(image.astype('float32') / 255.).permute(2, 0, 1).cuda() - 1
     return image
 
 
 if __name__ == '__main__':
     name = datetime.now().isoformat() + '_{}'.format(sys.argv[1])
-    folder = os.path.join('images', POLICY_NAME, name)
+    folder = os.path.join('images', EXPERIMENT_NAME, name)
     if not os.path.exists(folder):
         os.makedirs(folder)
     os.makedirs(os.path.join(folder, 'full_observations'))
@@ -142,7 +144,8 @@ if __name__ == '__main__':
     os.makedirs(os.path.join(folder, 'rewards'))
 
     socket = init_socket()
-    encoder, trans = init_policy()
+    encoder, trans = init_policy(POLICY_PATH)
+    goal_image = cv2.resize(cv2.cvtColor(cv2.imread(GOAL_IMAGE), cv2.COLOR_BGR2RGB), (IMAGE_INPUT_SIZE, IMAGE_INPUT_SIZE))
 
     dummy_img = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8)
     plt.ion()
@@ -151,8 +154,11 @@ if __name__ == '__main__':
     ims.append(axs[0, 0].imshow(dummy_img.copy()))
     ims.append(axs[1, 0].imshow(dummy_img.copy()))
     ims.append(axs[0, 1].imshow(dummy_img.copy()))
-    ims.append(axs[1, 1].imshow(dummy_img.copy()))
+    ims.append(axs[1, 1].imshow(goal_image))
     fig.canvas.draw()
+
+    goal_image = 2 * torch.FloatTensor(goal_image.astype('float32') / 255.).permute(2, 0, 1).cuda() - 1
+
 
     print('py3::Starting...')
     time_step = 0
@@ -163,7 +169,8 @@ if __name__ == '__main__':
         data = zlib.decompress(data)
         image = pickle.loads(data, encoding='latin1')
         print('py3::Received image, executing policy')
-        action = generate_action(encoder, trans, image)
+
+        action = generate_action(encoder, trans, image, goal_image).astype('double')
 
         binary_image = update_image(image, action)
         cv2.imwrite(os.path.join(folder, 'full_observations', '{}.png'.format(time_step)),

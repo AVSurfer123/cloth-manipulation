@@ -125,6 +125,5 @@ dmypy.json
 
 .idea/
 *.tar.gz
-test/
 policies
 images/
