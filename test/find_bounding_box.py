@@ -39,9 +39,11 @@ def main():
 
     try:
         while True:
-            print('Press Enter')
-            r, c, s = raw_input().split()
-            r, c, s = int(r), int(c), int(s)
+            print('Press enter row column size:')
+            string = raw_input()
+            if string != "":
+                r, c, s = raw_input().split()
+                r, c, s = int(r), int(c), int(s)
             image_name = 'tmp.png'
             called = False
     except KeyboardInterrupt:

@@ -4,11 +4,13 @@ import geometry_msgs.msg
 from pr2_controllers_msgs.msg import Pr2GripperCommand
 from sensor_msgs.msg import Image
 
+import cv2
 import cv_bridge
 import pickle
 import zmq
 import zlib
 import sys
+import os
 import time
 
 from constants import *
@@ -39,7 +41,7 @@ def open_gripper():
 
 
 def close_gripper():
-    pub.publish(Pr2GripperCommand(0.0, 32))
+    pub.publish(Pr2GripperCommand(-0.02, 32))
 
 
 def gripper_down():
@@ -98,6 +100,12 @@ def move_arm(x, y, z=None):
         print('py2::Action failed...')
 
 
+def gamma_trans(img, gamma):
+    gamma_table=[np.power(x/255.0,gamma)*255.0 for x in range(256)]
+    gamma_table=np.round(np.array(gamma_table)).astype(np.uint8)
+    return cv2.LUT(img,gamma_table)
+
+
 def image_callback(msg):
     global send_message
     global waiting_to_send_image
@@ -107,7 +115,11 @@ def image_callback(msg):
         bridge = cv_bridge.CvBridge()
         image = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
 
-        data = pickle.dumps(image)
+        exposure_img = gamma_trans(image, .6)
+        # path = os.path.join('images', 'exposure_test.png')
+        # cv2.imwrite(path, exposure_img)
+        
+        data = pickle.dumps(exposure_img)
         data = zlib.compress(data)
         socket.send(data)
         print('py2::Image sent')

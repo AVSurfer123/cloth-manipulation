@@ -5,12 +5,12 @@ A = W[:2]
 b = W[2]
 
 Z_UP = 1.075
-Z_DOWN = 1.00
+Z_DOWN = 1.02
 Z_STATIONARY = 1.2
 
 ROBOT_ORIGIN = [0.3, 0.5, Z_STATIONARY]
 
-GOAL_IMAGE = 'images/rope_goal_flat_sim.png'
+GOAL_IMAGE = 'images/rope_goal_flat.png'
 POLICY_PATH = 'policies/cpc_torch/rope/checkpoint'
 EXPERIMENT_NAME = 'rope_test'
 
