@@ -119,6 +119,17 @@ def generate_action(encoder, trans, current_image, goal_image):
         idx = torch.argmin(dists)
     action = actions[idx].cpu().numpy()
     action[:2] = (action[:2] * 0.5 + 0.5) * 63
+
+    action[3] = -action[3]
+    action[[2, 3]] = action[[3, 2]]
+
+    print("z current:", z_current)
+    print("z_goal:", z_goal)
+    print("z next:", zs[idx])
+    print("action:", action)
+
+
+
     return action
 
 
