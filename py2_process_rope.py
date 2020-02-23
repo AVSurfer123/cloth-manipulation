@@ -14,37 +14,10 @@ import os
 import time
 
 from constants import *
+from robot_actions import *
 
 
-send_message = True
-waiting_to_send_image = True
-current_image = None
-
-def init_socket():
-    context = zmq.Context()
-    socket = context.socket(zmq.REQ)
-    socket.connect("tcp://{}:{}".format(HOST, PORT))
-    return socket
-
-
-def init_controller():
-    pub = rospy.Publisher(TOPIC_NAME, Pr2GripperCommand, queue_size=10)
-    moveit_commander.roscpp_initialize(sys.argv)
-    robot = moveit_commander.RobotCommander()
-    left_arm = moveit_commander.MoveGroupCommander('left_arm')
-
-    return pub, left_arm
-
-
-def open_gripper():
-    pub.publish(Pr2GripperCommand(0.04, 32))
-
-
-def close_gripper():
-    pub.publish(Pr2GripperCommand(-0.02, 32))
-
-
-def gripper_down():
+def gripper_down_backup():
     current_pose = left_arm.get_current_pose().pose
 
     pose_goal = geometry_msgs.msg.Pose()
@@ -55,6 +28,7 @@ def gripper_down():
     pose_goal.orientation.y = 0.509701024424
     pose_goal.orientation.z = 0.501773446261
     pose_goal.orientation.w = 0.501519472782
+    
 
     left_arm.set_pose_target(pose_goal)
     left_arm.go(wait=True)
@@ -64,51 +38,41 @@ def gripper_down():
     time.sleep(0.5)
 
 
-def reset_arm():
-    move_arm(*ROBOT_ORIGIN)
-    gripper_down()
+def execute_action(picks, deltas, two_hand):
+    if not two_hand:
+        location, delta = picks[0], deltas[0]
+        start_loc, end_loc = location, location + delta * MAX_IMAGE_DELTA
+        start_loc = coord_image_to_robot(start_loc)
+        end_loc = coord_image_to_robot(end_loc)
 
+        print('pr2::Moving from pose {} to {}...'.format(start_loc, end_loc))
 
-def move_arm(x, y, z=None):
-    old_pose = left_arm.get_current_pose().pose
+        move_arm(main_side, (start_loc[0], start_loc[1], Z_STATIONARY))
+        time.sleep(0.5)
+        move_arm(main_side, (start_loc[0], start_loc[1], Z_DOWN))
+        time.sleep(0.5)
+        close_gripper(main_side)
+        time.sleep(2.5) # wait longer since close doesn't block
+        move_arm(main_side, (start_loc[0], start_loc[1], Z_UP))
+        time.sleep(0.5)
+        move_arm(main_side, (end_loc[0], end_loc[1], Z_UP))
+        time.sleep(0.5)
+        move_arm(main_side, (end_loc[0], end_loc[1], Z_DOWN))
+        time.sleep(0.5)
+        open_gripper(main_side)
+        time.sleep(2.5) # wait longer since open doesn't block
+        move_arm(main_side, (end_loc[0], end_loc[1], Z_UP))
+        time.sleep(0.5)
 
-    pose_goal = geometry_msgs.msg.Pose()
-    pose_goal.position.x = x
-    pose_goal.position.y = y
-    if z is None:
-        pose_goal.position.z = old_pose.position.z
-    else:
-        pose_goal.position.z = z
-    pose_goal.orientation.x = old_pose.orientation.x
-    pose_goal.orientation.y = old_pose.orientation.y
-    pose_goal.orientation.z = old_pose.orientation.z
-    pose_goal.orientation.w = old_pose.orientation.w
+        reset_arm(main_side)
+        time.sleep(1)
+    print('pr2::Completed action')
+    
+send_message = True
+waiting_to_send_image = True
 
-    left_arm.set_pose_target(pose_goal)
-    success = left_arm.go(wait=True)
-    left_arm.stop()
-    left_arm.clear_pose_targets()
-
-    current_pose = left_arm.get_current_pose().pose
-    x_err = np.abs(pose_goal.position.x - current_pose.position.x)
-    y_err = np.abs(pose_goal.position.y - current_pose.position.y)
-    z_err = np.abs(pose_goal.position.z - current_pose.position.z)
-    total_err = np.sqrt(x_err ** 2 + y_err ** 2 + z_err ** 2)
-
-    print('py2::Error: {}'.format(total_err))
-    if not success:
-        print('py2::Action failed...')
-
-
-def gamma_trans(img, gamma):
-    gamma_table=[np.power(x/255.0,gamma)*255.0 for x in range(256)]
-    gamma_table=np.round(np.array(gamma_table)).astype(np.uint8)
-    return cv2.LUT(img,gamma_table)
-
-
-def image_callback(msg):
-    global send_message
-    global waiting_to_send_image
+def image_callback(socket, msg):
+    global send_message, waiting_to_send_image
 
     if send_message:
         send_message = False
@@ -126,68 +90,37 @@ def image_callback(msg):
         waiting_to_send_image = False
 
 
-def execute_action(location, delta):
-    start_loc, end_loc = location, location + delta * MAX_IMAGE_DELTA
-    start_loc = coord_image_to_robot(start_loc)
-    end_loc = coord_image_to_robot(end_loc)
-
-    print('pr2::Moving from pose {} to {}...'.format(start_loc, end_loc))
-
-    move_arm(start_loc[0], start_loc[1], Z_STATIONARY)
-    time.sleep(0.5)
-    move_arm(start_loc[0], start_loc[1], Z_DOWN)
-    time.sleep(0.5)
-    close_gripper()
-    time.sleep(2.5) # wait longer since close doesn't block
-    move_arm(start_loc[0], start_loc[1], Z_UP)
-    time.sleep(0.5)
-    move_arm(end_loc[0], end_loc[1], Z_UP)
-    time.sleep(0.5)
-    move_arm(end_loc[0], end_loc[1], Z_DOWN)
-    time.sleep(0.5)
-    open_gripper()
-    time.sleep(2.5) # wait longer since open doesn't block
-    move_arm(end_loc[0], end_loc[1], Z_UP)
-    time.sleep(0.5)
-
-    reset_arm()
-    time.sleep(2.5)
-    print('pr2::Completed action')
-
-
-def coord_image_to_robot(image_coord):
-    image_coord += 0.5
-    image_coord *= float(IMAGE_SIZE) / IMAGE_INPUT_SIZE
-    image_coord += IMAGE_ORIGIN.astype('float32')
-    return image_coord.dot(A) + b
-
-
 if __name__ == '__main__':
     socket = init_socket()
-    pub, left_arm = init_controller()
+    main_side = 'right'  # Choose the side to use if one-handed
 
-    rospy.init_node('towel_folding_py2')
-    rospy.Subscriber("/camera/rgb/image_raw", Image, image_callback)
+    rospy.init_node('rope_folding_py2')
+    rospy.Subscriber("/camera/rgb/image_raw", Image, lambda msg: image_callback(socket, msg))
 
     print('py2::Starting...')
     time_step = 0
-    open_gripper()
-    reset_arm()
-    time.sleep(3)
+    open_gripper('left')
+    open_gripper('right')
+    reset_both_arms()
+    time.sleep(1)
     while time_step < N_ACTIONS:
         if waiting_to_send_image:
             continue
 
         data = socket.recv()
         data = zlib.decompress(data)
-        action = pickle.loads(data)
+        picks, deltas, two_hand = pickle.loads(data)
 
         print('pr2::Timestep {}'.format(time_step))
-        print('pr2::Received action {}'.format(action))
-        location, delta = action[:2], action[2:]
-        assert len(location) == len(delta) == 2
+        print('pr2::Received action {}'.format((picks, deltas)))
+        if two_hand:
+            assert len(picks) == len(deltas) == 2
+        else:
+            assert len(picks) == len(deltas) == 1
+            location, delta = picks[0], deltas[0]
+            assert len(location) == len(delta) == 2
 
-        execute_action(location, delta)
+        execute_action(picks.astype('double'), deltas.astype('double'), two_hand)
         send_message = True
         waiting_to_send_image = True
         time_step += 1

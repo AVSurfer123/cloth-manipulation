@@ -16,7 +16,9 @@ import cv2
 from datetime import datetime
 
 from constants import *
+from vision_utils import *
 
+COLOR = WHITE
 
 def init_socket():
     context = zmq.Context()
@@ -55,89 +57,34 @@ def init_policy():
     return policy, Qs
 
 
-def coord_image_to_robot(image_coord):
-    image_coord += 0.5
-    image_coord *= float(IMAGE_SIZE) / IMAGE_INPUT_SIZE
-    image_coord += IMAGE_ORIGIN.astype('float32')
-    return image_coord.dot(A) + b
-
-
-def rgb2hsv(r, g, b):
-    assert 0 <= r < 256
-    assert 0 <= g < 256
-    assert 0 <= b < 256
-    rp, gp, bp = r / 255., g / 255., b / 255.
-    cmax, cmin = max(rp, gp, bp), min(rp, gp, bp)
-    delta = cmax - cmin
-    if delta == 0:
-        h = 0
-    elif cmax == rp:
-        h = 60 * (((gp - bp) / delta) % 6)
-    elif cmax == gp:
-        h = 60 * (((bp - rp) / delta) + 2)
-    elif cmax == bp:
-        h = 60 * (((rp - gp) / delta) + 4)
-
-    if cmax == 0:
-        s = 0
-    else:
-        s = delta / cmax
-
-    v = cmax
-    return h, s, v
-
-
-def hsv2rgb(h, s, v):
-    c = v * s
-    x = c * (1 - abs((h / 60) % 2 - 1))
-    m = v - c
-    if 0 <= h < 60:
-        rp, gp, bp = (c, x, 0)
-    elif 60 <= h < 120:
-        rp, gp, bp = (x, c, 0)
-    elif 120 <= h < 180:
-        rp, gp, bp = (0, c, x)
-    elif 180 <= h < 240:
-        rp, gp, bp = (0, x, c)
-    elif 240 <= h < 300:
-        rp, gp, bp = (x, 0, c)
-    elif 300 <= h < 360:
-        rp, gp, bp = (c, 0, x)
-    else:
-        raise Exception()
-
-    r, g, b = ((rp + m) * 255, (gp + m) * 255, (bp + m) * 255)
-    return int(r), int(g), int(b)
-
-
-def update_image(image, action):
-    image, action = image.copy(), action.copy()
-    location, delta = action[:2], action[2:]
+def update_image(image, picks, deltas):
+    image, picks, deltas = image.copy(), picks.copy(), deltas.copy()
     image = preprocess_image(image, resize=False)
 
     # Image to label pick (yellow) and place (red) positions
-    start_loc, end_loc = location, location + delta * MAX_IMAGE_DELTA
-    start_loc, end_loc = coord_image_to_robot(start_loc), coord_image_to_robot(end_loc)
-    start_loc = (start_loc - b).dot(np.linalg.inv(A))
-    end_loc = (end_loc - b).dot(np.linalg.inv(A))
-    start_loc, end_loc = start_loc - IMAGE_ORIGIN, end_loc - IMAGE_ORIGIN
+    for location, delta in zip(picks, deltas):
+        start_loc, end_loc = location, location + delta * MAX_IMAGE_DELTA
+        start_loc, end_loc = coord_image_to_robot(start_loc), coord_image_to_robot(end_loc)
+        start_loc = (start_loc - b).dot(np.linalg.inv(A))
+        end_loc = (end_loc - b).dot(np.linalg.inv(A))
+        start_loc, end_loc = start_loc - IMAGE_ORIGIN, end_loc - IMAGE_ORIGIN
 
-    start_loc, end_loc = start_loc.astype('int32'), end_loc.astype('int32')
-    sr, sc = start_loc
-    er, ec = end_loc
-    radius = 4
+        start_loc, end_loc = start_loc.astype('int32'), end_loc.astype('int32')
+        sr, sc = start_loc
+        er, ec = end_loc
+        radius = 4
 
-    start_goal_image = image.copy()
-    h, w = start_goal_image.shape[:2]
-    start_goal_image[max(0, sr - radius):min(h, sr + radius), max(0, sc - radius):min(w, sc + radius)] = [255, 255, 0]
-    start_goal_image[max(0, er - radius):min(h, er + radius), max(0, ec - radius):min(w, ec + radius)] = [255, 0, 0]
+        start_goal_image = image.copy()
+        h, w = start_goal_image.shape[:2]
+        start_goal_image[max(0, sr - radius):min(h, sr + radius), max(0, sc - radius):min(w, sc + radius)] = [255, 255, 0]
+        start_goal_image[max(0, er - radius):min(h, er + radius), max(0, ec - radius):min(w, ec + radius)] = [255, 0, 0]
 
     ims[0].set_data(start_goal_image)
 
     if MODE != 'model_pick' and MODE != 'random_no_segmentation':
         # Image showing actions of perturbation positions
         image_input = cv2.resize(image, (IMAGE_INPUT_SIZE, IMAGE_INPUT_SIZE))
-        locations = get_seg_idxs(image_input)
+        locations = get_seg_idxs(image_input, COLOR)
         image_input = np.tile(image_input[None, :, :, :], (locations.shape[0], 1, 1, 1))
         tiled_locations = np.tile(locations, 50)
         scaled_locations = (locations + 0.5) * (float(IMAGE_SIZE) / IMAGE_INPUT_SIZE)
@@ -192,7 +139,7 @@ def update_image(image, action):
     # Image showing segmentation
     seg_image = cv2.resize(image.copy(), (IMAGE_INPUT_SIZE, IMAGE_INPUT_SIZE))
 
-    idxs = get_seg_idxs(seg_image).astype('int32')
+    idxs = get_seg_idxs(seg_image, COLOR).astype('int32')
     seg_image[:] = 0
     for r, c in idxs:
         seg_image[r, c, :] = 255
@@ -219,26 +166,20 @@ def update_image(image, action):
     return reward, rtn_image
 
 
-def segment_image(image):
-    h, w, c = image.shape
-    image = image.reshape((-1, c))
-    dist_white = np.linalg.norm(image - WHITE, axis=-1)
-    dist_green = np.linalg.norm(image - GREEN, axis=-1)
-    dist = np.vstack((dist_green, dist_white))
-    return np.argmin(dist, axis=0).reshape((h, w))
-
-
-def get_seg_idxs(image):
-    seg = segment_image(image)
-    locations = np.argwhere(seg).astype('float32')
-    return locations
-
-
 def generate_action(policy, image, mode):
     image = preprocess_image(image)
-    locations = get_seg_idxs(image)
-
-    if mode == 'maxq_sample':
+    locations = get_seg_idxs(image, COLOR)
+    two_hand = False
+    if mode == 'two_hand_maxq':
+        two_hand = True
+        pass
+    elif mode == 'two_hand_policy_spread':
+        two_hand = True
+        pass
+    elif mode == 'two_hand_random_spread':
+        two_hand = True
+        pass
+    elif mode == 'maxq_sample':
         print('Using maxq_sample')
         image_input = np.tile(image[None, :, :, :], (locations.shape[0], 1, 1, 1))
         tiled_locations = np.tile(locations, 50)
@@ -320,18 +261,22 @@ def generate_action(policy, image, mode):
     else:
         raise Exception(mode)
 
-    delta[1] = -delta[1]
-    delta = delta[[1, 0]]
 
-    return np.concatenate((location, delta)).astype('float32')
+    if not two_hand:
+        picks = np.expand_dims(location, axis=0)
+        deltas = np.expand_dims(delta, axis=0)
 
+    print("Picks:", picks)
+    print("Deltas:", deltas)
 
-def preprocess_image(image, resize=True):
-    image = image[IMAGE_ORIGIN[0]:IMAGE_ORIGIN[0] + IMAGE_SIZE,
-            IMAGE_ORIGIN[1]:IMAGE_ORIGIN[1] + IMAGE_SIZE, :]
-    if resize:
-        image = cv2.resize(image, (IMAGE_INPUT_SIZE, IMAGE_INPUT_SIZE))
-    return image
+    # Convert from Cartesian x,y delta to image x,y delta
+    for i in range(len(deltas)):
+        deltas[i][1] = -deltas[i][1]
+        deltas[i] = deltas[i][[1, 0]]
+
+    # Point list is length 2 if two_hand else 1
+    # RETURN TYPE: ((pick locations: List[Tuple[float, float]], deltas: List[Tuple[float, float]]), two_hand: bool)
+    return picks.astype('float32'), deltas.astype('float32'), two_hand
 
 
 if __name__ == '__main__':
@@ -368,8 +313,8 @@ if __name__ == '__main__':
         data = zlib.decompress(data)
         image = pickle.loads(data, encoding='latin1')
         print('py3::Received image, executing policy')
-        action = generate_action(policy, image, mode=MODE)
-        reward, binary_image = update_image(image, action)
+        picks, deltas, two_hand = generate_action(policy, image, mode=MODE)
+        reward, binary_image = update_image(image, picks, deltas)
         print('Reward: {:.4f}'.format(reward))
 
         r1.append(reward)
@@ -383,7 +328,7 @@ if __name__ == '__main__':
         np.save(os.path.join(folder, 'rewards', 'intersection.npy'), r1)
 
         print('py3::Sending action')
-        data = pickle.dumps(action, protocol=2)
+        data = pickle.dumps((picks, deltas, two_hand), protocol=2)
         data = zlib.compress(data)
         socket.send(data)
         time_step += 1

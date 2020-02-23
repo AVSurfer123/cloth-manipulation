@@ -15,7 +15,10 @@ import cv2
 from datetime import datetime
 
 from constants import *
+from vision_utils import *
 
+
+COLOR = BLUE
 
 def init_socket():
     context = zmq.Context()
@@ -53,60 +56,6 @@ def init_policy():
 
     return policy, Qs
 
-
-def coord_image_to_robot(image_coord):
-    image_coord += 0.5
-    image_coord *= float(IMAGE_SIZE) / IMAGE_INPUT_SIZE
-    image_coord += IMAGE_ORIGIN.astype('float32')
-    return image_coord.dot(A) + b
-
-
-def rgb2hsv(r, g, b):
-    assert 0 <= r < 256
-    assert 0 <= g < 256
-    assert 0 <= b < 256
-    rp, gp, bp = r / 255., g / 255., b / 255.
-    cmax, cmin = max(rp, gp, bp), min(rp, gp, bp)
-    delta = cmax - cmin
-    if delta == 0:
-        h = 0
-    elif cmax == rp:
-        h = 60 * (((gp - bp) / delta) % 6)
-    elif cmax == gp:
-        h = 60 * (((bp - rp) / delta) + 2)
-    elif cmax == bp:
-        h = 60 * (((rp - gp) / delta) + 4)
-
-    if cmax == 0:
-        s = 0
-    else:
-        s = delta / cmax
-
-    v = cmax
-    return h, s, v
-
-
-def hsv2rgb(h, s, v):
-    c = v * s
-    x = c * (1 - abs((h / 60) % 2 - 1))
-    m = v - c
-    if 0 <= h < 60:
-        rp, gp, bp = (c, x, 0)
-    elif 60 <= h < 120:
-        rp, gp, bp = (x, c, 0)
-    elif 120 <= h < 180:
-        rp, gp, bp = (0, c, x)
-    elif 180 <= h < 240:
-        rp, gp, bp = (0, x, c)
-    elif 240 <= h < 300:
-        rp, gp, bp = (x, 0, c)
-    elif 300 <= h < 360:
-        rp, gp, bp = (c, 0, x)
-    else:
-        raise Exception()
-
-    r, g, b = ((rp + m) * 255, (gp + m) * 255, (bp + m) * 255)
-    return int(r), int(g), int(b)
 
 
 def update_image(image, picks, deltas):
@@ -148,7 +97,7 @@ def update_image(image, picks, deltas):
     if MODE != 'model_pick' and MODE != 'random_no_segmentation':
         # Image showing actions of perturbation positions
         image_input = cv2.resize(image, (IMAGE_INPUT_SIZE, IMAGE_INPUT_SIZE))
-        locations = get_seg_idxs(image_input)
+        locations = get_seg_idxs(image_input, COLOR)
         image_input = np.tile(image_input[None, :, :, :], (locations.shape[0], 1, 1, 1))
         tiled_locations = np.tile(locations, 50)
         scaled_locations = (locations + 0.5) * (float(IMAGE_SIZE) / IMAGE_INPUT_SIZE)
@@ -200,7 +149,7 @@ def update_image(image, picks, deltas):
     start_row, start_col = int((IMAGE_INPUT_SIZE - CLOTH_HEIGHT) / 2), int((IMAGE_INPUT_SIZE - CLOTH_WIDTH) / 2)
     ground_truth_seg[start_row:start_row + CLOTH_HEIGHT, start_col:start_col + CLOTH_WIDTH] = 1
 
-    idxs = get_seg_idxs(seg_image).astype('int32')
+    idxs = get_seg_idxs(seg_image, COLOR).astype('int32')
     seg_image[:] = 0
     for r, c in idxs:
         seg_image[r, c, :] = 255
@@ -228,24 +177,10 @@ def update_image(image, picks, deltas):
     return reward_intersection, reward_iou, rtn_image
 
 
-def segment_image(image):
-    h, w, c = image.shape
-    image = image.reshape((-1, c))
-    dist_blue = np.linalg.norm(image - BLUE, axis=-1)
-    dist_green = np.linalg.norm(image - GREEN, axis=-1)
-    dist = np.vstack((dist_green, dist_blue))
-    return np.argmin(dist, axis=0).reshape((h, w))
-
-
-def get_seg_idxs(image):
-    seg = segment_image(image)
-    locations = np.argwhere(seg).astype('float32')
-    return locations
-
 
 def generate_action(policy, image, mode):
     image = preprocess_image(image)
-    locations = get_seg_idxs(image)
+    locations = get_seg_idxs(image, COLOR)
     sorted_loc = np.sort(locations, axis=0)
     left_loc = sorted_loc[sorted_loc[:, 0] <= IMAGE_INPUT_SIZE//2]
     right_loc = sorted_loc[sorted_loc[:, 0] > IMAGE_INPUT_SIZE//2]
@@ -408,13 +343,6 @@ def generate_action(policy, image, mode):
     # RETURN TYPE: ((pick locations: List[Tuple[float, float]], deltas: List[Tuple[float, float]]), two_hand: bool)
     return picks.astype('float32'), deltas.astype('float32'), two_hand
 
-
-def preprocess_image(image, resize=True):
-    image = image[IMAGE_ORIGIN[0]:IMAGE_ORIGIN[0] + IMAGE_SIZE,
-            IMAGE_ORIGIN[1]:IMAGE_ORIGIN[1] + IMAGE_SIZE, :]
-    if resize:
-        image = cv2.resize(image, (IMAGE_INPUT_SIZE, IMAGE_INPUT_SIZE))
-    return image
 
 
 if __name__ == '__main__':

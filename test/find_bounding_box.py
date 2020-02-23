@@ -25,7 +25,7 @@ def callback(msg):
         if image_name is not None:
             path = join('images', image_name)
             cv2.imwrite(path, image)
-            print 'Saved:', path
+            print('Saved:', path)
 
 
 def main():

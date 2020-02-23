@@ -12,6 +12,9 @@ from datetime import datetime
 import torch
 
 from constants import *
+from vision_utils import *
+
+COLOR = WHITE
 
 
 def init_socket():
@@ -27,16 +30,8 @@ def init_policy(path):
     return encoder, trans
 
 
-def coord_image_to_robot(image_coord):
-    image_coord += 0.5
-    image_coord *= float(IMAGE_SIZE) / IMAGE_INPUT_SIZE
-    image_coord += IMAGE_ORIGIN.astype('float32')
-    return image_coord.dot(A) + b
-
-
-def update_image(image, action):
-    image, action = image.copy(), action.copy()
-    location, delta = action[:2], action[2:]
+def update_image(image, location, delta):
+    image, location, delta = image.copy(), location.copy(), delta.copy()
     image = preprocess_image(image, resize=False)
 
     # Image to label pick (yellow) and place (red) positions
@@ -61,7 +56,7 @@ def update_image(image, action):
     # Image showing segmentation
     seg_image = cv2.resize(image.copy(), (IMAGE_INPUT_SIZE, IMAGE_INPUT_SIZE))
 
-    idxs = get_seg_idxs(seg_image).astype('int32')
+    idxs = get_seg_idxs(seg_image, COLOR).astype('int32')
     seg_image[:] = 0
     for r, c in idxs:
         seg_image[r, c, :] = 255
@@ -80,21 +75,6 @@ def update_image(image, action):
     return seg_image
 
 
-def segment_image(image):
-    h, w, c = image.shape
-    image = image.reshape((-1, c))
-    dist_white = np.linalg.norm(image - WHITE, axis=-1)
-    dist_green = np.linalg.norm(image - GREEN, axis=-1)
-    dist = np.vstack((dist_green, dist_white))
-    return np.argmin(dist, axis=0).reshape((h, w))
-
-
-def get_seg_idxs(image):
-    seg = segment_image(image)
-    locations = np.argwhere(seg).astype('float32')
-    return locations
-
-
 def run_single(model, *args):
     return model(*[a.unsqueeze(0) for a in args]).squeeze(0)
 
@@ -106,7 +86,7 @@ def sample_actions(locations, n):
 
 
 def generate_action(encoder, trans, current_image, goal_image):
-    locations = 2 * (get_seg_idxs(preprocess_image(current_image)) / 63.) - 1
+    locations = 2 * (get_seg_idxs(preprocess_image(current_image), COLOR) / 63.) - 1
     current_image = preprocess_image(current_image, to_torch=True)
 
     z_current, z_goal = run_single(encoder, current_image), run_single(encoder, goal_image)
@@ -118,29 +98,24 @@ def generate_action(encoder, trans, current_image, goal_image):
         dists = torch.norm((zs - z_goal).view(n_trials, -1), dim=-1)
         idx = torch.argmin(dists)
     action = actions[idx].cpu().numpy()
-    action[:2] = (action[:2] * 0.5 + 0.5) * 63
 
-    action[3] = -action[3]
-    action[[2, 3]] = action[[3, 2]]
+    location, delta = action[:2], action[2:]
+
+    location = (location * 0.5 + 0.5) * 63
+
+    delta[1] = -delta[1]
+    delta = delta[[1, 0]]
+
+    # action[3] = -action[3]
+    # action[[2, 3]] = action[[3, 2]]
 
     print("z current:", z_current)
     print("z_goal:", z_goal)
     print("z next:", zs[idx])
     print("action:", action)
 
+    return location, delta
 
-
-    return action
-
-
-def preprocess_image(image, resize=True, to_torch=False):
-    image = image[IMAGE_ORIGIN[0]:IMAGE_ORIGIN[0] + IMAGE_SIZE,
-            IMAGE_ORIGIN[1]:IMAGE_ORIGIN[1] + IMAGE_SIZE, :]
-    if resize:
-        image = cv2.resize(image, (IMAGE_INPUT_SIZE, IMAGE_INPUT_SIZE))
-    if to_torch:
-        image = 2 * torch.FloatTensor(image.astype('float32') / 255.).permute(2, 0, 1).cuda() - 1
-    return image
 
 
 if __name__ == '__main__':
@@ -181,9 +156,9 @@ if __name__ == '__main__':
         image = pickle.loads(data, encoding='latin1')
         print('py3::Received image, executing policy')
 
-        action = generate_action(encoder, trans, image, goal_image).astype('double')
+        location, delta = generate_action(encoder, trans, image, goal_image)
 
-        binary_image = update_image(image, action)
+        binary_image = update_image(image, location, delta)
         cv2.imwrite(os.path.join(folder, 'full_observations', '{}.png'.format(time_step)),
                     cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
         cv2.imwrite(os.path.join(folder, 'raw_observations', '{}.png'.format(time_step)),
@@ -193,7 +168,10 @@ if __name__ == '__main__':
         np.save(os.path.join(folder, 'rewards', 'intersection.npy'), r1)
 
         print('py3::Sending action')
-        data = pickle.dumps(action, protocol=2)
+        two_hand = False
+        picks = np.expand_dims(location, axis=0)
+        deltas = np.expand_dims(delta, axis=0)
+        data = pickle.dumps((picks, deltas, two_hand), protocol=2)
         data = zlib.compress(data)
         socket.send(data)
         time_step += 1

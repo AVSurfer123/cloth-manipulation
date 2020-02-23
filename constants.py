@@ -10,7 +10,8 @@ Z_STATIONARY = 1.2
 RIGHT_Z_OFFSET = -.04
 
 # ROBOT_ORIGIN = [0.2, 0.55, Z_STATIONARY]
-GRIPPER_DOWN_ORIENT = [0.137595297951, 0.687421561519, -0.157305941758, 0.695538619653]
+GRIPPER_ORIENT_HORI = [0.137595297951, 0.687421561519, -0.157305941758, 0.695538619653]
+GRIPPER_ORIENT_VERT = [-0.48673041075, 0.509701024424, 0.501773446261, 0.501519472782]
 ROBOT_ORIGIN = [0.3, 0.5, Z_STATIONARY]
 
 GOAL_IMAGE = 'images/rope_goal_flat.png'
@@ -20,13 +21,10 @@ EXPERIMENT_NAME = 'rope_test'
 RIGHT_GRIPPER_TOPIC = '/r_gripper_controller/command'
 LEFT_GRIPPER_TOPIC = '/l_gripper_controller/command'
 
-TOPIC_NAME = '/l_gripper_controller/command'  # Change to l or r depending on which arm is wanted
-
 N_ACTIONS = 200
 
-CHECKPOINT_PATH = '/home/owen/wilson/cloth-manipulation/policies/cloth_multiple/checkpoint_450'
-#CHECKPOINT_PATH = '/home/owen/wilson/pr2-towel-manipulation/policies/cloth_multiple/checkpoint_450'
-# CHECKPOINT_PATH = '/home/owen/wilson/pr2-towel-manipulation/policies/rope_seed_9029/checkpoint_90'
+CHECKPOINT_PATH = '/home/owen/wilson/cloth-manipulation/policies/tf/cloth_multiple/checkpoint_450'
+# CHECKPOINT_PATH = '/home/owen/wilson/cloth-manipulation/policies/tf/rope_seed_9029/checkpoint_90'
 
 
 # Both
