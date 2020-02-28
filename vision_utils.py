@@ -87,3 +87,9 @@ def hsv2rgb(h, s, v):
 
     r, g, b = ((rp + m) * 255, (gp + m) * 255, (bp + m) * 255)
     return int(r), int(g), int(b)
+
+
+def gamma_trans(img, gamma):
+    gamma_table=[np.power(x/255.0, gamma)*255.0 for x in range(256)]
+    gamma_table=np.round(np.array(gamma_table)).astype(np.uint8)
+    return cv2.LUT(img,gamma_table)

@@ -87,17 +87,21 @@ def sample_actions(locations, n):
 
 def generate_action(encoder, trans, current_image, goal_image):
     locations = 2 * (get_seg_idxs(preprocess_image(current_image), COLOR) / 63.) - 1
-    current_image = preprocess_image(current_image, to_torch=True)
 
-    z_current, z_goal = run_single(encoder, current_image), run_single(encoder, goal_image)
-    z_current, z_goal = z_current.unsqueeze(0), z_goal.unsqueeze(0)
-    n_trials = 1000
-    with torch.no_grad():
-        actions = torch.FloatTensor(sample_actions(locations, n_trials)).cuda()
-        zs = trans(z_current.repeat(n_trials, 1), actions)
-        dists = torch.norm((zs - z_goal).view(n_trials, -1), dim=-1)
-        idx = torch.argmin(dists)
-    action = actions[idx].cpu().numpy()
+    if False:
+        action = sample_actions(locations, 1)[0]
+    else:
+        current_image = preprocess_image(current_image, to_torch=True)
+
+        z_current, z_goal = run_single(encoder, current_image), run_single(encoder, goal_image)
+        z_current, z_goal = z_current.unsqueeze(0), z_goal.unsqueeze(0)
+        n_trials = 1000
+        with torch.no_grad():
+            actions = torch.FloatTensor(sample_actions(locations, n_trials)).cuda()
+            zs = trans(z_current.repeat(n_trials, 1), actions)
+            dists = torch.norm((zs - z_goal).view(n_trials, -1), dim=-1)
+            idx = torch.argmin(dists)
+        action = actions[idx].cpu().numpy()
 
     location, delta = action[:2], action[2:]
 
@@ -109,18 +113,18 @@ def generate_action(encoder, trans, current_image, goal_image):
     # action[3] = -action[3]
     # action[[2, 3]] = action[[3, 2]]
 
-    print("z current:", z_current)
-    print("z_goal:", z_goal)
-    print("z next:", zs[idx])
-    print("action:", action)
+    # print("z current:", z_current)
+    # print("z_goal:", z_goal)
+    # print("z next:", zs[idx])
+    # print("action:", action)
 
     return location, delta
 
 
 
 if __name__ == '__main__':
-    name = datetime.now().isoformat() + '_{}'.format(sys.argv[1])
-    folder = os.path.join('images', EXPERIMENT_NAME, name)
+    # name = datetime.now().isoformat() + '_{}'.format(sys.argv[1])
+    folder = os.path.join('images', EXPERIMENT_NAME, sys.argv[1])
     if not os.path.exists(folder):
         os.makedirs(folder)
     os.makedirs(os.path.join(folder, 'full_observations'))

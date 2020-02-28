@@ -19,7 +19,7 @@ def signal_handler(signal, frame):
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)
-    rospy.init_node('test_rostopic')
+    rospy.init_node('display_image')
     rospy.Subscriber("/camera/rgb/image_raw", Image, callback)
     try:
         rospy.spin()

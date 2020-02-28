@@ -53,7 +53,7 @@ def get_gripper(side):
 
 def open_gripper(side):
     pub = get_gripper(side)
-    pub.publish(Pr2GripperCommand(0.02, 32))
+    pub.publish(Pr2GripperCommand(0.04, 32))
 
 
 def close_gripper(side):
@@ -85,18 +85,17 @@ def gripper_down(side):
 
 
 def reset_arm(side):
-    origin = ROBOT_ORIGIN[:]
+    origin = LEFT_ROBOT_ORIGIN[:]
     if side == 'right':
-        origin[1] = -origin[1]
+        origin = RIGHT_ROBOT_ORIGIN[:]
     move_arm(side, origin, GRIPPER_ORIENT_VERT)
     # gripper_down(side)
 
 
 def reset_both_arms():
-    left_origin = ROBOT_ORIGIN[:]
-    right_origin = ROBOT_ORIGIN[:]
-    right_origin[1] = -right_origin[1]
-    move_both_arms(left_origin, right_origin, GRIPPER_ORIENT_HORI, GRIPPER_ORIENT_HORI)
+    left_origin = LEFT_ROBOT_ORIGIN[:]
+    right_origin = RIGHT_ROBOT_ORIGIN[:]
+    move_both_arms(left_origin, right_origin, GRIPPER_ORIENT_VERT, GRIPPER_ORIENT_VERT)
     # orient = [0.137595297951, 0.687421561519, -0.157305941758, 0.695538619653]
     # gripper_down('left')
     # gripper_down('right')
@@ -110,7 +109,7 @@ def move_both_arms(left_loc, right_loc, left_orient=None, right_orient=None):
         pose_goal.position.x = x
         pose_goal.position.y = y
         pose_goal.position.z = z
-        if orient:
+        if orient is not None:
             pose_goal.orientation = geometry_msgs.msg.Quaternion(*orient)
         else:
             pose_goal.orientation = old_pose.orientation
@@ -145,7 +144,7 @@ def move_arm(side, loc, orient=None):
     pose_goal.position.x = x
     pose_goal.position.y = y
     pose_goal.position.z = z
-    if orient:
+    if orient is not None:
         pose_goal.orientation = geometry_msgs.msg.Quaternion(*orient)
     else:
         pose_goal.orientation = old_pose.orientation
@@ -172,7 +171,7 @@ def move_arm(side, loc, orient=None):
 
 
 def gamma_trans(img, gamma):
-    gamma_table=[np.power(x/255.0,gamma)*255.0 for x in range(256)]
+    gamma_table=[np.power(x/255.0, gamma)*255.0 for x in range(256)]
     gamma_table=np.round(np.array(gamma_table)).astype(np.uint8)
     return cv2.LUT(img,gamma_table)
 
