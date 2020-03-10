@@ -6,6 +6,7 @@ import os
 import glob
 from collections import defaultdict
 from pprint import pprint
+import matplotlib.pyplot as plt
 
 from vision_utils import segment_image, GREEN, WHITE, BLUE, YELLOW, IMAGE_INPUT_SIZE
 
@@ -13,18 +14,21 @@ from vision_utils import segment_image, GREEN, WHITE, BLUE, YELLOW, IMAGE_INPUT_
 IMAGE_DIR = "/home/owen/wilson/cloth-manipulation/images/"
 EXP_PATH = os.path.join(IMAGE_DIR, "rope_test")
 
-GOAL_IMAGE_PATHS = [os.path.join(IMAGE_DIR, file) for file in ["rope_goal_flat.png", "vert_rope.png", "pi_over_4.png", "3pi_over_4.png", "squiggle.png"]]
-print(GOAL_IMAGE_PATHS)
-SEGMENTED_GOAL_IMAGES = [segment_image(cv2.resize(cv2.imread(image_name), (IMAGE_INPUT_SIZE, IMAGE_INPUT_SIZE)), WHITE) for image_name in GOAL_IMAGE_PATHS]
-GOAL_DICT = dict(zip(["horizontal", "vertical", "_pi_over_4", "3pi_over_4", "squiggle"], SEGMENTED_GOAL_IMAGES))
+# GOAL_IMAGE_PATHS = [os.path.join(IMAGE_DIR, file) for file in ["cloth_goal.png"]]
+# SEGMENTED_GOAL_IMAGES = [segment_image(cv2.resize(cv2.imread(image_name), (IMAGE_INPUT_SIZE, IMAGE_INPUT_SIZE)), BLUE) for image_name in GOAL_IMAGE_PATHS]
+# cv2.imwrite("images/cloth_goal_segmented.png", SEGMENTED_GOAL_IMAGES[0]*255.)
+SEGMENTED_GOAL_IMAGES = [cv2.imread("images/cloth_goal_segmented.png", cv2.IMREAD_GRAYSCALE)/255]
+GOAL_DICT = dict(zip(["cloth"], SEGMENTED_GOAL_IMAGES))
 
+for img in GOAL_DICT:
+    plt.imshow(GOAL_DICT[img])
+    plt.show()
 
 EXP_RESULTS = defaultdict(list)
 
 for folder in sorted(os.listdir(EXP_PATH)):
     folder_path = os.path.join(EXP_PATH, folder)
-    # print("Folder", folder)
-    if "rope" in folder:
+    if "cloth" in folder and "seed" not in folder:
         for exp in sorted(os.listdir(folder_path)):
             exp_path = os.path.join(folder_path, exp)
             print("Exp", exp)
@@ -45,5 +49,10 @@ for folder in sorted(os.listdir(EXP_PATH)):
         for goal_name in GOAL_DICT:
             EXP_RESULTS[f"{folder}_{goal_name}"] = np.mean(EXP_RESULTS[f"{folder}_{goal_name}"])
 
+
+for val in sorted(EXP_RESULTS):
+    print(val)
+for val in sorted(EXP_RESULTS):
+    print(EXP_RESULTS[val])
 
 pprint(EXP_RESULTS)

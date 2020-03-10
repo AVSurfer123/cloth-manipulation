@@ -6,7 +6,7 @@ import os
 import signal
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from constants import TEST_GRIPPER_POS as GRIPPER_POS, IMAGE_ORIGIN, IMAGE_SIZE
+from constants import TEST_GRIPPER_POS as GRIPPER_POS, IMAGE_ORIGIN, IMAGE_SIZE, GAMMA_CORRECTION
 from vision_utils import gamma_trans
 
 called = False
@@ -24,7 +24,7 @@ def callback(msg):
         r, c = IMAGE_ORIGIN
         image = image[r:r+s, c:c+s, :]
         image = cv2.resize(image, (64, 64))
-        image = gamma_trans(image, .6)
+        image = gamma_trans(image, GAMMA_CORRECTION)
 
         if image_name is not None:
             path = os.path.join('images', image_name)

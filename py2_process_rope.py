@@ -88,7 +88,7 @@ def execute_action(picks, deltas, two_hand):
         time.sleep(0.5)
         open_gripper(main_side)
         time.sleep(2.5) # wait longer since open doesn't block
-        move_arm(main_side, (end_loc[0], end_loc[1], Z_UP), quat)
+        move_arm(main_side, (end_loc[0], end_loc[1], Z_STATIONARY), quat)
         time.sleep(0.5)
 
         reset_arm(main_side)
@@ -107,7 +107,7 @@ def image_callback(socket, msg):
         bridge = cv_bridge.CvBridge()
         image = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
 
-        exposure_img = gamma_trans(image, 1.) # .6 during the day
+        exposure_img = gamma_trans(image, GAMMA_CORRECTION) # .6 during the day
         # path = os.path.join('images', 'exposure_test.png')
         # cv2.imwrite(path, exposure_img)
         current_image = exposure_img

@@ -6,7 +6,7 @@ import os
 import sys
 import signal
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from constants import TEST_GRIPPER_POS as GRIPPER_POS, IMAGE_ORIGIN, IMAGE_SIZE
+from constants import TEST_GRIPPER_POS as GRIPPER_POS, IMAGE_ORIGIN, IMAGE_SIZE, GAMMA_CORRECTION
 from vision_utils import gamma_trans
 
 
@@ -25,7 +25,7 @@ def callback(msg):
         image = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
 
         image = image[r:r+s, c:c+s, :]
-        image = gamma_trans(image, 1.)
+        image = gamma_trans(image, GAMMA_CORRECTION)
         cv2.imshow('Image', image)
         cv2.waitKey(1)
         # image = cv2.resize(image, (64, 64))

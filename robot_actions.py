@@ -53,7 +53,7 @@ def get_gripper(side):
 
 def open_gripper(side):
     pub = get_gripper(side)
-    pub.publish(Pr2GripperCommand(0.04, 32))
+    pub.publish(Pr2GripperCommand(GRIPPER_OPEN, 32))
 
 
 def close_gripper(side):

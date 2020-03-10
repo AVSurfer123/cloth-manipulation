@@ -46,7 +46,7 @@ def execute_action(picks, deltas, two_hand):
         open_gripper('right')
         open_gripper('left')
         time.sleep(2.5)  # wait longer since open doesn't block
-        move_both_arms((left_end[0], left_end[1], Z_UP), (right_end[0], right_end[1], Z_UP))
+        move_both_arms((left_end[0], left_end[1], Z_STATIONARY), (right_end[0], right_end[1], Z_STATIONARY))
         time.sleep(0.5)
 
         reset_both_arms()
@@ -74,7 +74,7 @@ def execute_action(picks, deltas, two_hand):
         time.sleep(0.5)
         open_gripper(main_side)
         time.sleep(2.5) # wait longer since open doesn't block
-        move_arm(main_side, (end_loc[0], end_loc[1], Z_UP))
+        move_arm(main_side, (end_loc[0], end_loc[1], Z_STATIONARY))
         time.sleep(0.5)
 
         reset_arm(main_side)
@@ -92,7 +92,7 @@ def image_callback(socket, msg):
         bridge = cv_bridge.CvBridge()
         image = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
 
-        exposure_img = gamma_trans(image, .6)
+        exposure_img = gamma_trans(image, GAMMA_CORRECTION)
         
         data = pickle.dumps(exposure_img)
         data = zlib.compress(data)
@@ -104,7 +104,7 @@ def image_callback(socket, msg):
 
 if __name__ == "__main__":
     socket = init_socket()
-    main_side = 'right'  # Choose the side to use if one-handed
+    main_side = 'left'  # Choose the side to use if one-handed
 
     rospy.init_node('towel_folding_py2')
     rospy.Subscriber("/camera/rgb/image_raw", Image, lambda msg: image_callback(socket, msg))
